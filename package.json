@@ -1,0 +1,51 @@
+{
+  "name": "soyofon-desktop-tools",
+  "productName": "Soyofon Desktop Tools",
+  "version": "1.0.0",
+  "description": "可擴充的 Windows 桌面小工具框架",
+  "main": "src/main.js",
+  "author": "soyofon",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/ensure-electron.js",
+    "start": "node scripts/ensure-electron.js && electron .",
+    "dist": "electron-builder --win nsis portable",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "com.soyofon.desktoptools",
+    "productName": "Soyofon Desktop Tools",
+    "files": [
+      "src/**/*",
+      "widgets/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ],
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "ff14-clock",
+  "name": "FF14 時鐘",
+  "entry": "index.html",
+  "width": 240,
+  "height": 112,
+  "defaultEnabled": true
+}

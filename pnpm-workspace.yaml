@@ -1,0 +1,10 @@
+# pnpm 10：onlyBuiltDependencies / pnpm 11：allowBuilds
+# 允許這些套件執行安裝腳本（Electron 需要靠它下載執行檔）
+onlyBuiltDependencies:
+  - electron
+  - electron-winstaller
+  - dmg-license
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  dmg-license: true
