@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'">
+<title>Soyofon Desktop Tools 設定</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="crystal"></span>
+      <div>
+        <div class="brand-name">Desktop Tools</div>
+        <div class="brand-sub" id="version"></div>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-tab="general">一般</button>
+      <button class="nav-item" data-tab="widgets">小工具</button>
+      <button class="nav-item" data-tab="database">資料庫</button>
+    </nav>
+  </aside>
+
+  <main>
+    <!-- 一般 -->
+    <section class="tab active" id="tab-general">
+      <header class="tab-head"><h1>一般</h1></header>
+      <div class="card">
+        <label class="row">
+          <div>
+            <div class="row-title">開機時自動啟動</div>
+            <div class="row-desc" id="autostart-desc">登入系統後自動執行並還原小工具</div>
+          </div>
+          <input type="checkbox" class="switch" id="opt-autostart">
+        </label>
+        <label class="row">
+          <div>
+            <div class="row-title">鎖定所有小工具位置</div>
+            <div class="row-desc">鎖定後無法拖曳，避免誤觸移動</div>
+          </div>
+          <input type="checkbox" class="switch" id="opt-locked">
+        </label>
+      </div>
+      <h2>檔案位置</h2>
+      <div class="card">
+        <div class="row">
+          <div><div class="row-title">設定檔</div><div class="row-desc mono" id="path-config"></div></div>
+          <button class="btn" data-open="config">顯示</button>
+        </div>
+        <div class="row">
+          <div><div class="row-title">資料庫</div><div class="row-desc mono" id="path-database"></div></div>
+          <button class="btn" data-open="database">顯示</button>
+        </div>
+        <div class="row">
+          <div><div class="row-title">自訂小工具資料夾</div><div class="row-desc mono" id="path-userWidgets"></div></div>
+          <button class="btn" data-open="userWidgets">開啟</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 小工具 -->
+    <section class="tab" id="tab-widgets">
+      <header class="tab-head">
+        <h1>小工具</h1>
+        <button class="btn" id="btn-rescan">重新掃描</button>
+      </header>
+      <div class="card" id="widget-list"></div>
+    </section>
+
+    <!-- 資料庫 -->
+    <section class="tab" id="tab-database">
+      <div class="db-layout">
+        <div class="db-cats">
+          <div class="db-cats-head">
+            <h1>資料庫</h1>
+            <button class="btn primary small" id="btn-new-cat">＋ 分類</button>
+          </div>
+          <div id="cat-list" class="cat-list"></div>
+        </div>
+        <div class="db-detail" id="db-detail"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3 id="modal-title"></h3>
+      <div id="modal-body"></div>
+      <div class="modal-error" id="modal-error"></div>
+      <div class="modal-actions">
+        <button class="btn" id="modal-cancel">取消</button>
+        <button class="btn primary" id="modal-ok">確定</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

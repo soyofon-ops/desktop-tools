@@ -1,7 +1,8 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const db = require('./database');
 
 // ---- 只允許一個實例 ----
 if (!app.requestSingleInstanceLock()) {
@@ -15,6 +16,7 @@ const userWidgetsDir = () => path.join(app.getPath('userData'), 'widgets');
 /** @type {Map<string, {manifest: any, dir: string, win: BrowserWindow|null}>} */
 const widgets = new Map();
 let tray = null;
+let settingsWin = null;
 
 // ---------------------------------------------------------------------------
 // 小工具探索：每個子資料夾放一個 widget.json + index.html 即為一個小工具
@@ -94,6 +96,7 @@ function openWidget(id) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      autoplayPolicy: 'no-user-gesture-required', // 鬧鈴提示音不需先點擊
       additionalArguments: [`--widget-id=${id}`]
     }
   });
@@ -163,6 +166,22 @@ ipcMain.handle('widget:get-state', (e) => {
   return { id, locked: c.locked, settings: id ? config.widget(id).settings : {} };
 });
 
+// 小工具調整自己的視窗高度（例如時鐘下方彈出鬧鈴通知），寬度與位置不變
+ipcMain.on('widget:set-height', (e, height) => {
+  const id = widgetIdFromSender(e.sender);
+  if (!id) return;
+  const { win, manifest } = widgets.get(id);
+  const h = Math.round(Math.max(manifest.height, Math.min(Number(height) || manifest.height, 900)));
+  const b = win.getBounds();
+  if (b.height !== h) win.setBounds({ x: b.x, y: b.y, width: manifest.width, height: h });
+});
+
+// 複製文字到系統剪貼簿（小工具視窗常沒有焦點，網頁的 clipboard API 會失敗）
+ipcMain.handle('widget:copy-text', (_e, text) => {
+  clipboard.writeText(String(text ?? ''));
+  return true;
+});
+
 ipcMain.on('widget:set-settings', (e, settings) => {
   const id = widgetIdFromSender(e.sender);
   if (!id) return;
@@ -211,6 +230,7 @@ ipcMain.on('widget:context-menu', (e) => {
     },
     lockMenuItem(),
     { label: '重新載入', click: () => entry.win && entry.win.reload() },
+    { label: '設定…', click: () => openSettings() },
     { label: '隱藏此小工具', click: () => { closeWidget(id); rebuildTrayMenu(); } }
   ]).popup({ window: entry.win });
 });
@@ -220,13 +240,38 @@ function lockMenuItem() {
     label: '鎖定位置',
     type: 'checkbox',
     checked: !!config.get().locked,
-    click: (item) => {
-      config.get().locked = item.checked;
-      config.save();
-      broadcast('widget:locked', item.checked);
-      rebuildTrayMenu();
-    }
+    click: (item) => setLocked(item.checked)
   };
+}
+
+function setLocked(on) {
+  config.get().locked = !!on;
+  config.save();
+  broadcast('widget:locked', !!on);
+  rebuildTrayMenu();
+}
+
+function setAutoStart(on) {
+  config.get().autoStart = !!on;
+  config.saveNow();
+  applyAutoStart();
+  rebuildTrayMenu();
+}
+
+function setWidgetEnabled(id, on) {
+  on ? openWidget(id) : closeWidget(id);
+  rebuildTrayMenu();
+}
+
+function resetWidgetPosition(id) {
+  const entry = widgets.get(id);
+  if (!entry) return;
+  const c = config.widget(id);
+  delete c.x;
+  delete c.y;
+  const p = defaultPosition([...widgets.keys()].indexOf(id), entry.manifest.width);
+  if (entry.win) entry.win.setPosition(p.x, p.y);
+  config.saveNow();
 }
 
 function broadcast(channel, ...args) {
@@ -249,18 +294,18 @@ function applyAutoStart() {
 // 系統匣
 // ---------------------------------------------------------------------------
 function rebuildTrayMenu() {
+  notifySettings();
   if (!tray) return;
   const widgetItems = [...widgets.values()].map(({ manifest, win }) => ({
     label: manifest.name,
     type: 'checkbox',
     checked: !!win,
-    click: (item) => {
-      item.checked ? openWidget(manifest.id) : closeWidget(manifest.id);
-      rebuildTrayMenu();
-    }
+    click: (item) => setWidgetEnabled(manifest.id, item.checked)
   }));
 
   tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '設定…', click: () => openSettings() },
+    { type: 'separator' },
     { label: '小工具', enabled: false },
     ...(widgetItems.length ? widgetItems : [{ label: '（沒有找到小工具）', enabled: false }]),
     { type: 'separator' },
@@ -279,22 +324,12 @@ function rebuildTrayMenu() {
       type: 'checkbox',
       checked: !!config.get().autoStart,
       enabled: app.isPackaged,
-      click: (item) => {
-        config.get().autoStart = item.checked;
-        config.saveNow();
-        applyAutoStart();
-      }
+      click: (item) => setAutoStart(item.checked)
     },
     { type: 'separator' },
     {
       label: '重新掃描小工具',
-      click: () => {
-        const open = [...widgets.values()].filter(e => e.win).map(e => e.manifest.id);
-        open.forEach(id => closeWidget(id, { remember: false }));
-        discoverWidgets();
-        restoreWidgets();
-        rebuildTrayMenu();
-      }
+      click: () => rescanWidgets()
     },
     {
       label: '開啟自訂小工具資料夾',
@@ -319,6 +354,119 @@ function createTray() {
   rebuildTrayMenu();
 }
 
+function rescanWidgets() {
+  const open = [...widgets.values()].filter(e => e.win).map(e => e.manifest.id);
+  open.forEach(id => closeWidget(id, { remember: false }));
+  discoverWidgets();
+  restoreWidgets();
+  rebuildTrayMenu();
+}
+
+// ---------------------------------------------------------------------------
+// 設定視窗
+// ---------------------------------------------------------------------------
+function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore();
+    settingsWin.show();
+    settingsWin.focus();
+    return;
+  }
+  settingsWin = new BrowserWindow({
+    width: 900,
+    height: 620,
+    minWidth: 720,
+    minHeight: 480,
+    title: 'Soyofon Desktop Tools 設定',
+    backgroundColor: '#14161f',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'settings', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  settingsWin.setMenuBarVisibility(false);
+  settingsWin.loadFile(path.join(__dirname, 'settings', 'index.html'));
+  settingsWin.once('ready-to-show', () => {
+    settingsWin.show();
+    if (process.platform === 'darwin') app.focus({ steal: true });
+  });
+  settingsWin.on('closed', () => { settingsWin = null; });
+}
+
+function settingsState() {
+  const c = config.get();
+  return {
+    autoStart: !!c.autoStart,
+    locked: !!c.locked,
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    version: app.getVersion(),
+    paths: { config: config.file(), database: db.file(), userWidgets: userWidgetsDir() },
+    widgets: [...widgets.values()].map(({ manifest, win, dir }) => ({
+      id: manifest.id,
+      name: manifest.name,
+      description: manifest.description || '',
+      builtin: dir.startsWith(BUILTIN_WIDGETS_DIR),
+      enabled: !!win,
+      alwaysOnTop: !!config.widget(manifest.id).alwaysOnTop
+    }))
+  };
+}
+
+function notifySettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:state', settingsState());
+}
+
+ipcMain.handle('settings:get-state', () => settingsState());
+ipcMain.handle('settings:update', (_e, action, payload = {}) => {
+  switch (action) {
+    case 'autoStart': setAutoStart(payload.value); break;
+    case 'locked': setLocked(payload.value); break;
+    case 'widgetEnabled': setWidgetEnabled(payload.id, payload.value); break;
+    case 'widgetAlwaysOnTop': setWidgetAlwaysOnTop(payload.id, payload.value); break;
+    case 'widgetResetPosition': resetWidgetPosition(payload.id); break;
+    case 'rescan': rescanWidgets(); break;
+    case 'openPath': {
+      const target = settingsState().paths[payload.which];
+      if (!target) break;
+      if (payload.which === 'userWidgets') {
+        fs.mkdirSync(target, { recursive: true });
+        shell.openPath(target);
+      } else {
+        shell.showItemInFolder(target);
+      }
+      break;
+    }
+    default: throw new Error(`未知的設定動作：${action}`);
+  }
+  return settingsState();
+});
+
+// ---------------------------------------------------------------------------
+// 資料庫 IPC（設定視窗與所有小工具共用）
+// ---------------------------------------------------------------------------
+const DB_METHODS = {
+  read: ['listCategories', 'getCategory', 'listItems'],
+  write: ['addItem', 'updateItem', 'removeItem', 'moveItem'],
+  schema: ['createCategory', 'updateCategory', 'deleteCategory']
+};
+
+ipcMain.handle('db:call', (e, method, ...args) => {
+  const fromSettings = settingsWin && !settingsWin.isDestroyed() && e.sender === settingsWin.webContents;
+  const allowed = [...DB_METHODS.read, ...DB_METHODS.write, ...(fromSettings ? DB_METHODS.schema : [])];
+  if (!allowed.includes(method)) throw new Error(`不允許的資料庫操作：${method}`);
+  return db[method](...args);
+});
+
+db.events.on('change', (info) => {
+  broadcast('db:changed', info);
+  if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('db:changed', info);
+});
+
 function restoreWidgets() {
   for (const { manifest } of widgets.values()) {
     const c = config.widget(manifest.id);
@@ -333,11 +481,19 @@ app.whenReady().then(() => {
   // macOS：只放在選單列，不在 Dock 顯示圖示
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
   config.load();
+  db.load();
+  // macOS 需要應用程式選單，輸入框的 ⌘C / ⌘V / ⌘Z 才會有作用
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+  } else {
+    Menu.setApplicationMenu(null);
+  }
   discoverWidgets();
   applyAutoStart();
   createTray();
   restoreWidgets();
   rebuildTrayMenu();
+  if (process.argv.includes('--settings')) openSettings();
 
   // 螢幕配置改變時把跑出畫面的小工具拉回來
   screen.on('display-removed', () => {
@@ -351,6 +507,7 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('second-instance', () => tray && tray.popUpContextMenu());
+// 再次執行程式（例如點兩下捷徑）時開啟設定視窗
+app.on('second-instance', () => openSettings());
 app.on('window-all-closed', () => { /* 常駐系統匣，不因視窗全關而結束 */ });
-app.on('before-quit', () => config.saveNow());
+app.on('before-quit', () => { config.saveNow(); db.saveNow(); });

@@ -23,7 +23,7 @@
   }
   .panel {
     position: relative;
-    height: 100%;
+    height: 100px; /* 固定高度：視窗變高時只有下方的鬧鈴區塊會長出來 */
     border-radius: 10px;
     background:
       radial-gradient(120% 90% at 50% 0%, rgba(80, 90, 130, 0.35), transparent 60%),
@@ -70,18 +70,94 @@
   body[data-mode="et"] { --accent: var(--et); --other: var(--lt); }
   body[data-mode="lt"] { --accent: var(--lt); --other: var(--et); }
 
+  /* ---------- 鬧鈴圖示 ---------- */
+  .bell {
+    position: absolute; top: 9px; right: 11px;
+    display: flex; align-items: center; gap: 3px;
+    color: var(--gold); opacity: 0.85;
+    font-size: 10px; font-variant-numeric: tabular-nums;
+  }
+  .bell[hidden] { display: none; }
+  .bell { cursor: pointer; padding: 2px 3px; margin: -2px -3px; border-radius: 5px; }
+  .bell:hover { background: rgba(255, 255, 255, 0.08); }
+  .bell .slash { display: none; }
+  .bell.muted, .bell.muted.ringing { color: var(--muted); opacity: 0.9; }
+  .bell.muted svg { filter: none; }
+  .bell.muted .slash { display: inline; }
+  .bell.muted.ringing svg { animation: none; }
+  .bell svg { width: 13px; height: 13px; filter: drop-shadow(0 0 3px rgba(201, 169, 97, 0.5)); transform-origin: 50% 10%; }
+  .bell.ringing { color: #ffd58f; opacity: 1; }
+  .bell.ringing svg { animation: ring 1.8s ease-in-out infinite; }
+  @keyframes ring {
+    0%, 55%, 100% { transform: rotate(0); }
+    10% { transform: rotate(16deg); } 20% { transform: rotate(-14deg); }
+    30% { transform: rotate(10deg); } 40% { transform: rotate(-6deg); }
+  }
+
+  /* ---------- 鬧鈴通知 ---------- */
+  #alarms { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  #alarms:empty { display: none; }
+  .alarm {
+    position: relative;
+    padding: 7px 12px 8px;
+    border-radius: 9px;
+    background: rgba(18, 20, 30, 0.88);
+    border: 1px solid var(--gold-dim);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    animation: pop 0.25s ease-out;
+  }
+  .alarm.upcoming { border-color: rgba(255, 213, 143, 0.55); }
+  .alarm.upcoming::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+    box-shadow: 0 0 0 1px rgba(255, 213, 143, 0.5); animation: glow 1.6s ease-in-out infinite;
+  }
+  .alarm-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .alarm-name {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .alarm-name { cursor: copy; border-radius: 3px; transition: color 0.15s; }
+  .alarm-name:hover { color: #fff; text-decoration: underline dotted rgba(255, 255, 255, 0.4); text-underline-offset: 3px; }
+  .alarm-name.copied { color: #7ee08a; text-decoration: none; }
+  .alarm-status { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .alarm.upcoming .alarm-status { color: var(--lt); }
+  .alarm-range { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .alarm-range b { font-weight: 600; color: var(--et); }
+  .alarm-range b.lt { color: var(--lt); }
+  .bar { margin-top: 5px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; border-radius: 3px; transition: width 0.25s linear, background-color 0.25s linear; }
+  .alarm-close {
+    position: absolute; top: 3px; right: 4px; width: 16px; height: 16px; line-height: 15px;
+    border: 0; border-radius: 4px; background: none; color: var(--muted); font-size: 11px;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s;
+  }
+  .alarm:hover .alarm-close { opacity: 1; }
+  .alarm:hover .alarm-status { visibility: hidden; }
+  .alarm-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+  @keyframes pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  @keyframes glow { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+
   .swap { animation: swap 0.22s ease-out; }
   @keyframes swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
 <body data-mode="et">
   <div class="panel" id="panel" title="點擊切換艾奧傑亞時間 / 本地時間，右鍵開啟選單">
+    <div class="bell" id="bell" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path class="slash" d="M3.3 2.3 21.7 20.7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+        <path d="M12 2a1.5 1.5 0 0 0-1.5 1.5v.7A6.5 6.5 0 0 0 5.5 10.5v4.2l-1.7 2.4A1 1 0 0 0 4.6 18.7h14.8a1 1 0 0 0 .8-1.6l-1.7-2.4v-4.2a6.5 6.5 0 0 0-5-6.3v-.7A1.5 1.5 0 0 0 12 2Zm-2.6 18a2.6 2.6 0 0 0 5.2 0Z"/>
+      </svg>
+      <span id="bell-count"></span>
+    </div>
     <div id="content">
       <div class="label"><span class="crystal"></span><span id="label">艾奧傑亞時間</span></div>
       <div class="main"><span class="time" id="time">--:--</span></div>
       <div class="sub" id="sub"></div>
     </div>
   </div>
+  <div id="alarms"></div>
   <script src="clock.js"></script>
+  <script src="alarm.js"></script>
 </body>
 </html>

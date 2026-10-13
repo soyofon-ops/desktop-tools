@@ -21,8 +21,45 @@ contextBridge.exposeInMainWorld('widget', {
   },
   /** 合併儲存此小工具的設定，下次啟動時 getState() 會拿到 */
   saveSettings: (settings) => ipcRenderer.send('widget:set-settings', settings),
-  onLockedChange: (fn) => lockedListeners.add(fn)
+  onLockedChange: (fn) => lockedListeners.add(fn),
+  /** 調整視窗高度（不小於 widget.json 的 height） */
+  setHeight: (height) => ipcRenderer.send('widget:set-height', height),
+  /** 複製文字到系統剪貼簿 */
+  copyText: (text) => ipcRenderer.invoke('widget:copy-text', text),
+
+  /**
+   * 資料庫（分類與欄位在「設定 → 資料庫」建立）
+   *   await widget.db.categories()                    → [{ id, name, fields, count }]
+   *   await widget.db.category('ff14-alarms')         → { id, name, fields }
+   *   await widget.db.items('ff14-alarms')            → [{ id, data: {...}, createdAt, updatedAt }]
+   *   await widget.db.add('ff14-alarms', { name: 'x' })
+   *   await widget.db.update('ff14-alarms', itemId, { name: 'y' })
+   *   await widget.db.remove('ff14-alarms', itemId)
+   *   widget.db.onChange(({ categoryId }) => { ... })  // 任何地方改了資料都會通知
+   */
+  db: {
+    categories: () => dbCall('listCategories'),
+    category: (id) => dbCall('getCategory', id),
+    items: (categoryId) => dbCall('listItems', categoryId),
+    add: (categoryId, data) => dbCall('addItem', categoryId, data),
+    update: (categoryId, itemId, data) => dbCall('updateItem', categoryId, itemId, data),
+    remove: (categoryId, itemId) => dbCall('removeItem', categoryId, itemId),
+    onChange: (fn) => {
+      const handler = (_e, info) => fn(info);
+      ipcRenderer.on('db:changed', handler);
+      return () => ipcRenderer.removeListener('db:changed', handler);
+    }
+  }
 });
+
+// 把主程序的錯誤訊息還原成乾淨的 Error（去掉 Electron 加的前綴）
+async function dbCall(method, ...args) {
+  try {
+    return await ipcRenderer.invoke('db:call', method, ...args);
+  } catch (err) {
+    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+  }
+}
 
 // ---- 拖曳 ----
 const DRAG_THRESHOLD = 4;
