@@ -155,10 +155,13 @@ function renderWidgets() {
           class: 'btn small ghost', title: '移回螢幕右上角',
           onclick: () => run(() => settings.update('widgetResetPosition', { id: w.id }), '已重設位置')
         }, '重設位置'),
-        h('input', {
-          type: 'checkbox', class: 'switch', checked: w.enabled, title: w.enabled ? '顯示中' : '已隱藏',
-          onchange: (e) => run(() => settings.update('widgetEnabled', { id: w.id, value: e.target.checked }))
-        })
+        h('label', { class: 'switch', title: w.enabled ? '顯示中' : '已隱藏' },
+          h('input', {
+            type: 'checkbox', checked: w.enabled,
+            onchange: (e) => run(() => settings.update('widgetEnabled', { id: w.id, value: e.target.checked }))
+          }),
+          h('span', { class: 'track' })
+        )
       )
     )
   ));

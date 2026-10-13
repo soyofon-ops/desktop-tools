@@ -1,4 +1,4 @@
-// 鬧鈴：讀取資料庫「素材」分類，在開始前 3 分鐘（現實時間）於時鐘下方彈出通知，
+// 鬧鈴：讀取資料庫分類代碼為 ff14-alarms 的資料表，在開始前 3 分鐘（現實時間）於時鐘下方彈出通知，
 // 顯示素材名稱與開始→結束的進度條，結束時間到才消失。
 //
 // 欄位自動偵測（依欄位名稱／代碼）：
@@ -11,14 +11,14 @@
 //
 // 依賴 clock.js 的 EORZEA_MULTIPLIER、pad。
 (() => {
-  const LEAD_MS = 3 * 60 * 1000;         // 提前 3 分鐘（現實時間）
-  const ET_DAY = 24 * 60 * 60 * 1000;    // 艾奧傑亞一天（ET 毫秒）
-  const CATEGORY_MATCH = /素材|material/i;
+  const LEAD_MS = 3 * 60 * 1000; // 提前 3 分鐘（現實時間）
+  const ET_DAY = 24 * 60 * 60 * 1000; // 艾奧傑亞一天（ET 毫秒）
+  const CATEGORY_ID = 'ff14-alarms'; // 資料庫分類代碼（設定 → 資料庫）
 
   const box = document.getElementById('alarms');
   const bell = document.getElementById('bell');
   const bellCount = document.getElementById('bell-count');
-  let muted = false;          // 靜音：不響提示音（通知照常顯示），存在小工具設定裡
+  let muted = false; // 靜音：不響提示音（通知照常顯示），存在小工具設定裡
 
   // 點鈴鐺切換靜音（不觸發時鐘的 ET/LT 切換）
   bell.addEventListener('click', (ev) => {
@@ -31,13 +31,13 @@
     bell.classList.toggle('muted', muted);
     updateBellText();
   }
-  const BASE_HEIGHT = 112;               // widget.json 的 height
+  const BASE_HEIGHT = 112; // widget.json 的 height
 
-  let source = null;     // { cat, f: { name, type, start, end, enabled } }
+  let source = null; // { cat, f: { name, type, start, end, enabled } }
   let items = [];
-  const dismissed = new Set();   // `${itemId}@${開始時間}`：手動關閉的這一次
-  const announced = new Set();   // 已響過提示音的
-  const cards = new Map();       // key -> 元素
+  const dismissed = new Set(); // `${itemId}@${開始時間}`：手動關閉的這一次
+  const announced = new Set(); // 已響過提示音的
+  const cards = new Map(); // key -> 元素
 
   const text = (f) => `${f.label} ${f.key}`;
 
@@ -45,10 +45,17 @@
     const fields = cat.fields;
     const times = fields.filter((f) => f.type === 'time');
     const start = times.find((f) => /開始|start|begin|from/i.test(text(f))) || times[0];
-    const end = times.find((f) => f !== start && /結束|end|until|to\b/i.test(text(f))) || times.find((f) => f !== start);
-    const type = fields.find((f) => f.type !== 'time' && /類型|種類|type/i.test(text(f)))
-      || fields.find((f) => f.type === 'select' && (f.options || []).some((o) => /\bET\b|\bLT\b|艾奧|本地/i.test(`${o.label} ${o.value}`)));
-    const name = fields.find((f) => f.type === 'text' && /名稱|name|素材/i.test(text(f))) || fields.find((f) => f.type === 'text');
+    const end =
+      times.find((f) => f !== start && /結束|end|until|to\b/i.test(text(f))) || times.find((f) => f !== start);
+    const type =
+      fields.find((f) => f.type !== 'time' && /類型|種類|type/i.test(text(f))) ||
+      fields.find(
+        (f) =>
+          f.type === 'select' &&
+          (f.options || []).some((o) => /\bET\b|\bLT\b|艾奧|本地/i.test(`${o.label} ${o.value}`)),
+      );
+    const name =
+      fields.find((f) => f.type === 'text' && /名稱|name|素材/i.test(text(f))) || fields.find((f) => f.type === 'text');
     const enabled = fields.find((f) => f.type === 'boolean' && /啟用|鬧鈴|提醒|enable|alarm/i.test(text(f)));
     if (!start || !end) return null;
     return { name, type, start, end, enabled };
@@ -57,7 +64,7 @@
   async function load() {
     try {
       const cats = await window.widget.db.categories();
-      const cat = cats.find((c) => CATEGORY_MATCH.test(c.name)) || cats.find((c) => CATEGORY_MATCH.test(c.id));
+      const cat = cats.find((c) => c.id === CATEGORY_ID);
       const f = cat && detect(cat);
       source = f ? { cat, f } : null;
       items = source ? await window.widget.db.items(cat.id) : [];
@@ -73,11 +80,14 @@
   // 有啟用的鬧鈴才顯示鈴鐺：開始／結束時間都有填，且「啟用」欄位不是否（沒有啟用欄位時視為啟用）
   let enabledCount = 0;
   function updateBell() {
-    enabledCount = source ? items.filter((item) =>
-      (!source.f.enabled || item.data[source.f.enabled.key] !== false) &&
-      toMinutes(item.data[source.f.start.key]) !== null &&
-      toMinutes(item.data[source.f.end.key]) !== null
-    ).length : 0;
+    enabledCount = source
+      ? items.filter(
+          (item) =>
+            (!source.f.enabled || item.data[source.f.enabled.key] !== false) &&
+            toMinutes(item.data[source.f.start.key]) !== null &&
+            toMinutes(item.data[source.f.end.key]) !== null,
+        ).length
+      : 0;
     bell.hidden = enabledCount === 0;
     updateBellText();
   }
@@ -89,7 +99,7 @@
     bell.title = [
       `已啟用 ${enabledCount} 個素材鬧鈴`,
       noticeCount ? `目前 ${noticeCount} 個通知` : '目前沒有通知',
-      muted ? '🔇 靜音中（點擊恢復提示音）' : '點擊切換靜音'
+      muted ? '🔇 靜音中（點擊恢復提示音）' : '點擊切換靜音',
     ].join('\n');
   }
 
@@ -113,7 +123,7 @@
     const s = toMinutes(item.data[source.f.start.key]);
     const e = toMinutes(item.data[source.f.end.key]);
     if (s === null || e === null) return null;
-    const durMin = ((e - s + 1440) % 1440) || 1440;   // 結束 ≤ 開始 視為跨過午夜；相同視為一整天
+    const durMin = (e - s + 1440) % 1440 || 1440; // 結束 ≤ 開始 視為跨過午夜；相同視為一整天
 
     if (clockOf(item) === 'et') {
       const etNow = now * EORZEA_MULTIPLIER;
@@ -163,7 +173,9 @@
         nameEl.dataset.copiedUntil = Date.now() + 1200;
         nameEl.classList.add('copied');
         nameEl.textContent = '已複製 ✓';
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     });
     el.querySelector('.alarm-close').addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -219,10 +231,12 @@
         nameEl.classList.remove('copied');
         nameEl.textContent = name;
       }
-      el.querySelector('.alarm-status').textContent = upcoming ? `${mmss(w.ws - now)} 後開始` : `剩 ${mmss(w.we - now)}`;
+      el.querySelector('.alarm-status').textContent = upcoming
+        ? `${mmss(w.ws - now)} 後開始`
+        : `剩 ${mmss(w.we - now)}`;
       const range = el.querySelector('.alarm-range');
       const tag = w.clock === 'et' ? 'ET' : 'LT';
-      range.innerHTML = `<b class="${w.clock}">${tag}</b> ${hm(w.s)} – ${hm(w.s + (((w.e - w.s + 1440) % 1440) || 1440))}`;
+      range.innerHTML = `<b class="${w.clock}">${tag}</b> ${hm(w.s)} – ${hm(w.s + ((w.e - w.s + 1440) % 1440 || 1440))}`;
       const fill = el.querySelector('.bar-fill');
       fill.style.width = `${(p * 100).toFixed(2)}%`;
       // 綠（剛開始）→ 黃 → 紅（快結束）
@@ -253,7 +267,10 @@
     try {
       audio = audio || new AudioContext();
       const t0 = audio.currentTime;
-      [[880, 0], [1320, 0.16]].forEach(([freq, at]) => {
+      [
+        [880, 0],
+        [1320, 0.16],
+      ].forEach(([freq, at]) => {
         const osc = audio.createOscillator();
         const gain = audio.createGain();
         osc.type = 'sine';
@@ -265,12 +282,18 @@
         osc.start(t0 + at);
         osc.stop(t0 + at + 0.5);
       });
-    } catch { /* 沒有音效裝置時忽略 */ }
+    } catch {
+      /* 沒有音效裝置時忽略 */
+    }
   }
 
   if (!window.widget || !window.widget.db) return; // 一般瀏覽器預覽時沒有資料庫
   window.widget.db.onChange(() => load());
   setInterval(tick, 250);
-  window.widget.getState().then((s) => setMuted(s.settings && s.settings.muted)).catch(() => {});
+  window.widget
+    .getState()
+    .then((s) => setMuted(s.settings && s.settings.muted))
+    .catch(() => {});
   load();
 })();
+

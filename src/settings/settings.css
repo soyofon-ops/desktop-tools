@@ -114,19 +114,27 @@ textarea { resize: vertical; min-height: 34px; }
 input:focus, select:focus, textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
 input[type=checkbox] { accent-color: var(--gold); width: 15px; height: 15px; cursor: pointer; }
 
-.switch {
-  appearance: none; -webkit-appearance: none;
-  width: 36px !important; height: 20px !important; flex: none;
-  border-radius: 999px; background: var(--line-strong); position: relative;
-  transition: background 0.15s;
+/* 開關：外層 .switch 固定尺寸，透明的 checkbox 蓋在上面負責點擊，.track 負責外觀
+   （不改造原生 checkbox 本身，避免各平台顯示不一致） */
+.switch { position: relative; display: inline-block; flex: none; width: 36px; height: 20px; cursor: pointer; }
+.switch input[type=checkbox] {
+  position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%;
+  margin: 0; opacity: 0; cursor: inherit;
 }
-.switch::after {
+.switch .track {
+  position: absolute; inset: 0; border-radius: 999px; pointer-events: none;
+  background: var(--line-strong); transition: background 0.15s, opacity 0.15s;
+}
+.switch .track::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-  border-radius: 50%; background: #d8d3c6; transition: transform 0.15s;
+  border-radius: 50%; background: #d8d3c6; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s, background 0.15s;
 }
-.switch:checked { background: var(--gold); }
-.switch:checked::after { transform: translateX(16px); background: #fff; }
-.switch:disabled { opacity: 0.4; cursor: not-allowed; }
+.switch input:checked + .track { background: var(--gold); }
+.switch input:checked + .track::after { transform: translateX(16px); background: #fff; }
+.switch input:focus-visible + .track { box-shadow: 0 0 0 2px var(--gold-soft); }
+.switch input:disabled + .track { opacity: 0.4; }
+.switch:has(input:disabled) { cursor: not-allowed; }
 
 /* ---------- 資料庫 ---------- */
 .db-layout { display: flex; width: 100%; height: 100%; }
@@ -227,7 +235,7 @@ tr.flash { animation: flash 1.2s ease-out; }
 .btn:disabled { opacity: 0.4; cursor: default; filter: none; }
 .btn:disabled:hover { border-color: var(--line-strong); }
 .btn.primary:disabled:hover { border-color: var(--gold); }
-input:disabled, select:disabled { color: var(--muted); background: transparent; border-style: dashed; cursor: not-allowed; }
+input:not([type=checkbox]):disabled, select:disabled { color: var(--muted); background: transparent; border-style: dashed; cursor: not-allowed; }
 
 .field-options {
   margin: -2px 12px 12px 24px; padding: 8px 10px;
