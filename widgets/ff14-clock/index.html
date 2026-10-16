@@ -85,6 +85,12 @@
   .bell.muted svg { filter: none; }
   .bell.muted .slash { display: inline; }
   .bell.muted.ringing svg { animation: none; }
+  /* 禁用：鈴鐺變淡並加上 OFF */
+  .bell.off, .bell.off.ringing { color: var(--muted); opacity: 0.45; }
+  .bell.off svg { filter: none; animation: none; }
+  .bell.off .slash { display: inline; }
+  .bell.off::after { content: "OFF"; font-size: 8px; font-weight: 700; letter-spacing: 0.05em; }
+  .bell.off:hover { opacity: 0.8; }
   .bell svg { width: 13px; height: 13px; filter: drop-shadow(0 0 3px rgba(201, 169, 97, 0.5)); transform-origin: 50% 10%; }
   .bell.ringing { color: #ffd58f; opacity: 1; }
   .bell.ringing svg { animation: ring 1.8s ease-in-out infinite; }

@@ -18,17 +18,26 @@
   const box = document.getElementById('alarms');
   const bell = document.getElementById('bell');
   const bellCount = document.getElementById('bell-count');
-  let muted = false; // 靜音：不響提示音（通知照常顯示），存在小工具設定裡
+  // 鬧鈴模式（存在小工具設定 alarmMode）：
+  //   on   啟用：通知＋提示音
+  //   mute 靜音：只有通知
+  //   off  禁用：通知與提示音都關閉
+  const MODES = ['on', 'mute', 'off'];
+  const MODE_TEXT = { on: '啟用', mute: '靜音', off: '禁用' };
+  let mode = 'on';
 
-  // 點鈴鐺切換靜音（不觸發時鐘的 ET/LT 切換）
+  // 點鈴鐺依序切換 啟用 → 靜音 → 禁用（不觸發時鐘的 ET/LT 切換）
   bell.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    setMuted(!muted);
-    if (window.widget) window.widget.saveSettings({ muted });
+    setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
+    if (window.widget) window.widget.saveSettings({ alarmMode: mode });
+    tick();
   });
-  function setMuted(v) {
-    muted = !!v;
-    bell.classList.toggle('muted', muted);
+  function setMode(v) {
+    mode = MODES.includes(v) ? v : 'on';
+    bell.classList.toggle('muted', mode === 'mute');
+    bell.classList.toggle('off', mode === 'off');
+    bell.dataset.mode = mode;
     updateBellText();
   }
   const BASE_HEIGHT = 112; // widget.json 的 height
@@ -95,11 +104,12 @@
   // 鈴鐺旁的數字＝目前跳出的通知數量
   let noticeCount = 0;
   function updateBellText() {
-    bellCount.textContent = noticeCount > 0 ? noticeCount : '';
+    bellCount.textContent = mode === 'off' ? '' : noticeCount > 0 ? noticeCount : '';
     bell.title = [
       `已啟用 ${enabledCount} 個素材鬧鈴`,
       noticeCount ? `目前 ${noticeCount} 個通知` : '目前沒有通知',
-      muted ? '🔇 靜音中（點擊恢復提示音）' : '點擊切換靜音',
+      `鬧鈴：${MODE_TEXT[mode]}（${mode === 'on' ? '通知＋聲音' : mode === 'mute' ? '只有通知' : '不通知'}）`,
+      `點擊切換 → ${MODE_TEXT[MODES[(MODES.indexOf(mode) + 1) % MODES.length]]}`,
     ].join('\n');
   }
 
@@ -188,7 +198,7 @@
   function tick() {
     const now = Date.now();
     const active = [];
-    if (source) {
+    if (source && mode !== 'off') {
       for (const item of items) {
         if (source.f.enabled && item.data[source.f.enabled.key] === false) continue;
         const w = windowOf(item, now);
@@ -216,7 +226,7 @@
         cards.set(key, el);
         if (!announced.has(key)) {
           announced.add(key);
-          if (!muted) chime();
+          if (mode === 'on') chime();
         }
       }
       if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
@@ -292,7 +302,12 @@
   setInterval(tick, 250);
   window.widget
     .getState()
-    .then((s) => setMuted(s.settings && s.settings.muted))
+    .then((s) => {
+      const st = (s && s.settings) || {};
+      // 舊版只有 muted 設定，轉成對應的模式
+      setMode(st.alarmMode || (st.muted ? 'mute' : 'on'));
+      tick();
+    })
     .catch(() => {});
   load();
 })();
