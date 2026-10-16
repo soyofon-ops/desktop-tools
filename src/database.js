@@ -18,7 +18,8 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { app } = require('electron');
 
-const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'time', 'select', 'url', 'longtext'];
+const FIELD_TYPES = ['text', 'number', 'boolean', 'date', 'time', 'select', 'ref', 'url', 'longtext'];
+const REF_ID = '__id'; // 資料表欄位的「值」使用資料本身的 id
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -96,6 +97,18 @@ function normalizeFields(fields) {
     seen.add(key);
     const type = FIELD_TYPES.includes(f.type) ? f.type : 'text';
     const label = String(f.label || key).trim() || key;
+    if (type === 'ref') {
+      // 資料表：從另一個分類取選項；labelKey 為顯示名稱欄位，valueKey 為值欄位（__id＝資料 id）
+      const r = f.ref || {};
+      const ref = {
+        category: String(r.category || '').trim(),
+        labelKey: String(r.labelKey || '').trim(),
+        valueKey: String(r.valueKey || '').trim() || REF_ID
+      };
+      if (!ref.category) throw new Error(`資料表欄位「${label}」請選擇資料表`);
+      if (!ref.labelKey) throw new Error(`資料表欄位「${label}」請選擇顯示名稱欄位`);
+      return { key, label, type, ref };
+    }
     if (type !== 'select') return { key, label, type };
     // 下拉選單：每個選項有顯示文字 label 與實際值 value，value 不可重複
     const options = (Array.isArray(f.options) ? f.options : []).map(toOption).filter((o) => o.value !== '');
@@ -124,6 +137,13 @@ function coerce(field, value) {
       const hit = field.options.find((o) => o.value === v) || field.options.find((o) => o.label === v);
       return hit ? hit.value : '';
     }
+    case 'ref': {
+      // 存被連結資料的「值」；傳入顯示名稱也會轉成對應的值。被連結的資料表不存在時原樣保留
+      if (!get().items[field.ref.category]) return typeof value === 'number' ? value : String(value);
+      const opts = refOptions(field);
+      const hit = opts.find((o) => String(o.value) === String(value)) || opts.find((o) => o.label === String(value).trim());
+      return hit ? hit.value : '';
+    }
     case 'time': {
       // 統一存成 24 小時制 "HH:MM"；接受 "8:5"、"08:05"、"08:05:00"
       const m = /^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$/.exec(String(value).trim());
@@ -132,6 +152,30 @@ function coerce(field, value) {
     }
     default: return String(value);
   }
+}
+
+// 資料表欄位的選項清單：[{ label, value }]（依被連結資料表的順序，值重複時取第一筆）
+function refOptions(field) {
+  const { category: catId, labelKey, valueKey } = field.ref;
+  const seen = new Set();
+  const out = [];
+  for (const item of get().items[catId] || []) {
+    const value = valueKey === REF_ID ? item.id : item.data[valueKey];
+    if (value === undefined || value === null || value === '' || seen.has(String(value))) continue;
+    seen.add(String(value));
+    const label = item.data[labelKey];
+    out.push({ label: label === undefined || label === null || label === '' ? String(value) : String(label), value });
+  }
+  return out;
+}
+
+// 欄位的可選項目（下拉選單或資料表欄位），其他類型回傳 []
+function fieldOptions(categoryId, key) {
+  const f = category(categoryId).fields.find((x) => x.key === key);
+  if (!f) throw new Error(`找不到欄位「${key}」`);
+  if (f.type === 'select') return clone(f.options);
+  if (f.type === 'ref') return clone(refOptions(f));
+  return [];
 }
 
 function category(id) {
@@ -156,7 +200,14 @@ function cleanData(cat, data, base = {}) {
 // ---------------------------------------------------------------------------
 function listCategories() {
   const d = get();
-  return d.categories.map((c) => ({ ...clone(c), count: (d.items[c.id] || []).length }));
+  return d.categories.map((c) => ({
+    ...clone(c),
+    count: (d.items[c.id] || []).length,
+    // 哪些欄位連結到這個分類（刪除前提醒用）
+    refBy: d.categories.flatMap((o) => o.fields
+      .filter((f) => f.type === 'ref' && f.ref.category === c.id)
+      .map((f) => ({ category: o.id, categoryName: o.name, key: f.key, label: f.label })))
+  }));
 }
 
 function getCategory(id) {
@@ -274,7 +325,164 @@ function moveItem(categoryId, itemId, toIndex) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// 匯出／匯入（JSON）
+//
+// 檔案格式：
+// {
+//   "format": "soyofon-desktop-tools/database", "version": 1, "exportedAt": "...",
+//   "categories": [
+//     { "id": "ff14-alerms", "name": "...", "description": "", "fields": [...],
+//       "items": [ { "id": "...", "data": { ... } } ] }
+//   ]
+// }
+// 匯入時 items 也接受直接寫資料物件：[{ "name": "黑檀木", "start": "02:00" }]
+// ---------------------------------------------------------------------------
+const EXPORT_FORMAT = 'soyofon-desktop-tools/database';
+
+function exportData(ids) {
+  const d = get();
+  const cats = ids && ids.length ? d.categories.filter((c) => ids.includes(c.id)) : d.categories;
+  return {
+    format: EXPORT_FORMAT,
+    version: 1,
+    exportedAt: now(),
+    categories: cats.map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description || '',
+      fields: clone(c.fields),
+      items: (d.items[c.id] || []).map((it) => ({ id: it.id, data: clone(it.data) }))
+    }))
+  };
+}
+
+// 檢查匯入檔並轉成統一格式（不寫入），錯誤時丟出可讀的訊息
+function parseImport(payload) {
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch { throw new Error('不是有效的 JSON 檔案'); }
+  }
+  if (!payload || typeof payload !== 'object') throw new Error('檔案內容格式不正確');
+  // 也接受單一分類物件
+  const list = Array.isArray(payload.categories) ? payload.categories
+    : (payload.id && payload.fields) ? [payload] : null;
+  if (!list) throw new Error('找不到分類資料（需要 categories 陣列）');
+  if (!list.length) throw new Error('檔案中沒有任何分類');
+
+  const seen = new Set();
+  return list.map((c, i) => {
+    const where = `第 ${i + 1} 個分類`;
+    const id = String(c.id || '').trim().toLowerCase();
+    if (!ID_RE.test(id)) throw new Error(`${where}的分類代碼「${c.id ?? ''}」格式不正確`);
+    if (seen.has(id)) throw new Error(`分類代碼「${id}」在檔案中重複`);
+    seen.add(id);
+    let fields;
+    try {
+      fields = normalizeFields(Array.isArray(c.fields) ? c.fields : []);
+    } catch (err) {
+      throw new Error(`分類「${id}」：${err.message}`);
+    }
+    const rawItems = Array.isArray(c.items) ? c.items : [];
+    const items = rawItems.map((it) => {
+      const wrapped = it && typeof it === 'object' && it.data && typeof it.data === 'object';
+      return {
+        id: wrapped && typeof it.id === 'string' && it.id ? it.id : null,
+        data: wrapped ? it.data : (it && typeof it === 'object' ? it : {})
+      };
+    });
+    return { id, name: String(c.name || id).trim() || id, description: String(c.description || ''), fields, items };
+  });
+}
+
+// 欄位合併：保留現有欄位，加入檔案中新的 key；同 key 的下拉選單合併選項
+function mergeFields(current, incoming) {
+  const out = clone(current);
+  for (const f of incoming) {
+    const cur = out.find((x) => x.key === f.key);
+    if (!cur) {
+      out.push(clone(f));
+    } else if (cur.type === 'select' && f.type === 'select') {
+      for (const o of f.options) if (!cur.options.some((x) => x.value === o.value)) cur.options.push({ ...o });
+    }
+  }
+  return out;
+}
+
+/**
+ * 匯入
+ * @param payload 檔案內容（物件或 JSON 字串）
+ * @param conflict 分類代碼已存在時：'replace' 取代欄位與資料｜'merge' 合併（同 id 的資料更新，其餘新增）｜'skip' 略過
+ * @param onlyIds  只匯入這些分類（省略＝全部）
+ */
+function importData(payload, { conflict = 'merge', onlyIds } = {}) {
+  const d = get();
+  const cats = parseImport(payload).filter((c) => !onlyIds || onlyIds.includes(c.id));
+  const report = [];
+
+  for (const inc of cats) {
+    const existing = d.categories.find((c) => c.id === inc.id);
+    if (existing && conflict === 'skip') {
+      report.push({ id: inc.id, name: existing.name, action: 'skipped', added: 0, updated: 0 });
+      continue;
+    }
+
+    let cat;
+    let action;
+    if (!existing) {
+      cat = { id: inc.id, name: inc.name, description: inc.description, fields: inc.fields, createdAt: now(), updatedAt: now() };
+      d.categories.push(cat);
+      d.items[cat.id] = [];
+      action = 'created';
+    } else if (conflict === 'replace') {
+      cat = existing;
+      Object.assign(cat, { name: inc.name, description: inc.description, fields: inc.fields, updatedAt: now() });
+      d.items[cat.id] = [];
+      action = 'replaced';
+    } else {
+      cat = existing;
+      cat.fields = mergeFields(cat.fields, inc.fields);
+      cat.updatedAt = now();
+      action = 'merged';
+    }
+
+    const list = d.items[cat.id] || (d.items[cat.id] = []);
+    let added = 0;
+    let updated = 0;
+    for (const it of inc.items) {
+      const hit = it.id && list.find((x) => x.id === it.id);
+      if (hit) {
+        hit.data = cleanData(cat, it.data, hit.data);
+        hit.updatedAt = now();
+        updated++;
+      } else {
+        const id = it.id && !list.some((x) => x.id === it.id) ? it.id : crypto.randomUUID();
+        list.push({ id, createdAt: now(), updatedAt: now(), data: cleanData(cat, it.data) });
+        added++;
+      }
+    }
+    report.push({ id: cat.id, name: cat.name, action, added, updated });
+    changed(cat.id);
+  }
+  saveNow();
+  return report;
+}
+
+// 預覽：每個分類的筆數，以及是否與現有分類代碼衝突
+function previewImport(payload) {
+  const d = get();
+  return parseImport(payload).map((c) => {
+    const existing = d.categories.find((x) => x.id === c.id);
+    return {
+      id: c.id, name: c.name, fields: c.fields.length, items: c.items.length,
+      exists: !!existing, existingName: existing ? existing.name : null,
+      existingItems: existing ? (d.items[c.id] || []).length : 0
+    };
+  });
+}
+
 module.exports = {
+  REF_ID, fieldOptions,
+  exportData, importData, previewImport,
   FIELD_TYPES, events, load, file, saveNow,
   listCategories, getCategory, createCategory, updateCategory, deleteCategory,
   listItems, addItem, updateItem, removeItem, moveItem

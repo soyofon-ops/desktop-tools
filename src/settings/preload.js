@@ -20,10 +20,14 @@ contextBridge.exposeInMainWorld('settings', {
     updateCategory: (id, patch) => invoke('db:call', 'updateCategory', id, patch),
     deleteCategory: (id) => invoke('db:call', 'deleteCategory', id),
     items: (id) => invoke('db:call', 'listItems', id),
+    fieldOptions: (id, key) => invoke('db:call', 'fieldOptions', id, key),
     addItem: (id, data) => invoke('db:call', 'addItem', id, data),
     updateItem: (id, itemId, data) => invoke('db:call', 'updateItem', id, itemId, data),
     removeItem: (id, itemId) => invoke('db:call', 'removeItem', id, itemId),
     moveItem: (id, itemId, to) => invoke('db:call', 'moveItem', id, itemId, to),
-    onChange: (fn) => ipcRenderer.on('db:changed', (_e, info) => fn(info))
+    onChange: (fn) => ipcRenderer.on('db:changed', (_e, info) => fn(info)),
+    exportJson: (ids) => invoke('db:export', ids),
+    importOpen: () => invoke('db:import-open'),
+    importApply: (options) => invoke('db:import-apply', options)
   }
 });

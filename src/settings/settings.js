@@ -9,9 +9,11 @@ const FIELD_TYPES = [
   ['date', '日期'],
   ['time', '時間'],
   ['select', '下拉選單'],
+  ['ref', '資料表'],
   ['url', '網址']
 ];
 const TYPE_LABEL = Object.fromEntries(FIELD_TYPES);
+const REF_ID = '__id'; // 資料表欄位的值使用資料 id
 
 // ---------------------------------------------------------------------------
 // 小工具：建立 DOM（不用 innerHTML，避免資料內容被當成 HTML）
@@ -208,6 +210,17 @@ async function loadCats() {
 
 async function loadItems() {
   dbView.items = dbView.current ? await settings.db.items(dbView.current) : [];
+  // 資料表欄位：載入被連結資料表的選項
+  dbView.refOptions = {};
+  const cat = currentCat();
+  for (const f of cat ? cat.fields : []) {
+    if (f.type !== 'ref') continue;
+    try {
+      dbView.refOptions[f.key] = await settings.db.fieldOptions(cat.id, f.key);
+    } catch {
+      dbView.refOptions[f.key] = [];
+    }
+  }
 }
 
 // 自己發出的寫入：先記一筆，收到對應的變更通知時跳過重繪
@@ -257,9 +270,13 @@ function fieldsDirty() {
 
 // 把欄位草稿轉成要儲存的格式（只有下拉選單保留 options）
 function cleanDraft(draft) {
-  return draft.map(({ key, label, type, options }) => {
+  return draft.map(({ key, label, type, options, ref }) => {
     const f = { key, label, type };
     if (type === 'select') f.options = parseOptions(options);
+    if (type === 'ref') {
+      const r = ref || {};
+      f.ref = { category: r.category || '', labelKey: r.labelKey || '', valueKey: r.valueKey || REF_ID };
+    }
     return f;
   });
 }
@@ -309,6 +326,7 @@ function renderDetail() {
         cat.description && h('div', { class: 'detail-desc' }, cat.description)
       ),
       h('div', { class: 'row-actions' },
+        h('button', { class: 'btn small', title: '匯出這個分類的欄位與資料（JSON）', onclick: () => exportJson([cat.id]) }, '匯出'),
         h('button', { class: 'btn small', onclick: () => editCategory(cat) }, '編輯'),
         h('button', { class: 'btn small danger', onclick: () => deleteCategory(cat) }, '刪除')
       )
@@ -342,6 +360,22 @@ function cellInput(field, value, onSave) {
         h('option', { value: '', selected: !value }, '—'),
         opts.map((o) => h('option', { value: o.value, selected: o.value === value, title: o.value }, o.label)),
         orphan && h('option', { value, selected: true }, `${value}（已移除）`)
+      );
+    }
+    case 'ref': {
+      const opts = (dbView.refOptions && dbView.refOptions[field.key]) || [];
+      const has = value !== '' && value !== undefined && value !== null;
+      const orphan = has && !opts.some((o) => String(o.value) === String(value));
+      return h('select', {
+        title: `來源：${field.ref.category}`,
+        onchange: (e) => {
+          const o = opts.find((x) => String(x.value) === e.target.value);
+          save(o ? o.value : e.target.value);
+        }
+      },
+        h('option', { value: '', selected: !has }, '—'),
+        opts.map((o) => h('option', { value: String(o.value), selected: has && String(o.value) === String(value) }, o.label)),
+        orphan && h('option', { value: String(value), selected: true }, `${value}（找不到）`)
       );
     }
     case 'time':
@@ -498,7 +532,12 @@ function removeRow(cat, item) {
 function renderFields(cat) {
   if (!dbView.draftFields) {
     // orig：選項原本的實際值，儲存時用來把舊資料換成新值
-    dbView.draftFields = cat.fields.map((f) => ({ ...f, options: f.options ? f.options.map((o) => ({ ...o, orig: o.value })) : undefined, isNew: false }));
+    dbView.draftFields = cat.fields.map((f) => ({
+      ...f,
+      options: f.options ? f.options.map((o) => ({ ...o, orig: o.value })) : undefined,
+      ref: f.ref ? { ...f.ref } : undefined,
+      isNew: false
+    }));
   }
   const draft = dbView.draftFields;
   const dirty = fieldsDirty();
@@ -515,6 +554,12 @@ function renderFields(cat) {
         onchange: (e) => {
           f.type = e.target.value;
           if (f.type === 'select' && !(f.options && f.options.length)) f.options = [{ label: '', value: '' }];
+          if (f.type === 'ref' && !f.ref) {
+            // 預設連結第一個其他分類，顯示名稱取它的第一個文字欄位
+            const other = dbView.cats.find((c) => c.id !== dbView.current) || dbView.cats[0];
+            f.ref = { category: other ? other.id : '', labelKey: '', valueKey: REF_ID };
+            pickRefLabel(f.ref);
+          }
           renderDetail();
         }
       },
@@ -526,7 +571,8 @@ function renderFields(cat) {
         h('button', { class: 'icon-btn danger', title: '移除欄位', onclick: () => { draft.splice(i, 1); renderDetail(); } }, '✕')
       )
     ),
-    f.type === 'select' && renderOptionsEditor(f, markDirty)
+    f.type === 'select' && renderOptionsEditor(f, markDirty),
+    f.type === 'ref' && renderRefEditor(f, markDirty)
   ]);
 
   const saveBtn = h('button', { class: 'btn primary small', id: 'btn-save-fields', disabled: !dirty, onclick: () => saveFields(cat) }, '儲存欄位');
@@ -554,6 +600,50 @@ function renderFields(cat) {
       h('div', { class: 'field-row head' }, h('div', {}, '顯示名稱'), h('div', {}, '欄位代碼 key'), h('div', {}, '類型'), h('div', {})),
       rows.length ? rows : h('div', { class: 'empty' }, '沒有欄位')
     )
+  );
+}
+
+// 資料表欄位設定：選擇資料表、顯示名稱欄位、值欄位
+function pickRefLabel(ref) {
+  const target = dbView.cats.find((c) => c.id === ref.category);
+  const fields = target ? target.fields : [];
+  if (!fields.some((x) => x.key === ref.labelKey)) {
+    const first = fields.find((x) => x.type === 'text') || fields[0];
+    ref.labelKey = first ? first.key : '';
+  }
+  if (ref.valueKey !== REF_ID && !fields.some((x) => x.key === ref.valueKey)) ref.valueKey = REF_ID;
+}
+
+function renderRefEditor(f, markDirty) {
+  const ref = f.ref;
+  const target = dbView.cats.find((c) => c.id === ref.category);
+  const fields = target ? target.fields : [];
+  const fieldOpts = (selected) => fields.map((x) =>
+    h('option', { value: x.key, selected: x.key === selected }, `${x.label}（${x.key}）`));
+
+  return h('div', { class: 'field-options ref-editor' },
+    h('div', { class: 'ref-grid' },
+      h('label', {}, h('span', { class: 'hint' }, '資料表'),
+        h('select', {
+          onchange: (e) => { ref.category = e.target.value; pickRefLabel(ref); renderDetail(); }
+        },
+          !target && h('option', { value: ref.category, selected: true }, ref.category ? `${ref.category}（不存在）` : '請選擇'),
+          dbView.cats.map((c) => h('option', { value: c.id, selected: c.id === ref.category },
+            `${c.name}（${c.id}）${c.id === dbView.current ? '・本分類' : ''}`))
+        )
+      ),
+      h('label', {}, h('span', { class: 'hint' }, '顯示名稱'),
+        h('select', { disabled: !fields.length, onchange: (e) => { ref.labelKey = e.target.value; markDirty(); } },
+          !fields.length && h('option', { value: '' }, '（沒有欄位）'),
+          fieldOpts(ref.labelKey))
+      ),
+      h('label', {}, h('span', { class: 'hint' }, '值（存進資料庫）'),
+        h('select', { disabled: !target, onchange: (e) => { ref.valueKey = e.target.value; markDirty(); } },
+          h('option', { value: REF_ID, selected: ref.valueKey === REF_ID }, '資料 ID（建議）'),
+          fieldOpts(ref.valueKey))
+      )
+    ),
+    h('div', { class: 'hint' }, '資料頁籤會以下拉選單列出所選資料表的資料。值選「資料 ID」時，之後改名稱也不會對不上。')
   );
 }
 
@@ -611,7 +701,8 @@ async function saveFields(cat) {
 function renderUsage(cat) {
   const sample = Object.fromEntries(cat.fields.slice(0, 3).map((f) => [f.key,
     f.type === 'number' ? 0 : f.type === 'boolean' ? true : f.type === 'date' ? '2026-01-01' : f.type === 'time' ? '08:00'
-      : f.type === 'select' ? f.options[0].value : '…']));
+      : f.type === 'select' ? f.options[0].value
+        : f.type === 'ref' ? (((dbView.refOptions || {})[f.key] || [])[0] || { value: '…' }).value : '…']));
   const code = [
     `// 讀取「${cat.name}」的所有資料`,
     `const items = await widget.db.items('${cat.id}');`,
@@ -637,7 +728,9 @@ function renderUsage(cat) {
       h('tbody', {}, cat.fields.map((f) => h('tr', {},
         h('td', { class: 'mono' }, f.key), h('td', {}, f.label), h('td', {}, TYPE_LABEL[f.type] || f.type,
           f.type === 'select' && h('div', { class: 'hint' },
-            f.options.map((o) => (o.label === o.value ? o.value : `${o.label} = ${o.value}`)).join('、'))))))
+            f.options.map((o) => (o.label === o.value ? o.value : `${o.label} = ${o.value}`)).join('、')),
+          f.type === 'ref' && h('div', { class: 'hint' },
+            `${f.ref.category}・顯示 ${f.ref.labelKey}・值 ${f.ref.valueKey === REF_ID ? '資料 ID' : f.ref.valueKey}`)))))
     ))
   );
 }
@@ -687,7 +780,11 @@ function editCategory(cat) {
 function deleteCategory(cat) {
   openModal({
     title: `刪除分類「${cat.name}」？`,
-    body: h('p', {}, `分類內的 ${cat.count} 筆資料會一起刪除，無法復原。使用這個分類（${cat.id}）的小工具將讀不到資料。`),
+    body: h('div', {},
+      h('p', {}, `分類內的 ${cat.count} 筆資料會一起刪除，無法復原。使用這個分類（${cat.id}）的小工具將讀不到資料。`),
+      (cat.refBy || []).length > 0 && h('p', { class: 'warn-text' },
+        `注意：${cat.refBy.map((r) => `「${r.categoryName}」的「${r.label}」`).join('、')} 連結到這個分類，刪除後這些欄位的選項會變成空的。`)
+    ),
     okText: '刪除分類',
     danger: true,
     onOk: async () => {
@@ -701,6 +798,78 @@ function deleteCategory(cat) {
 }
 
 $('#btn-new-cat').addEventListener('click', newCategory);
+$('#btn-import').addEventListener('click', importJson);
+$('#btn-export-all').addEventListener('click', () => exportJson(null));
+
+// ---- 匯出／匯入 JSON ----
+async function exportJson(ids) {
+  if (!ids && !dbView.cats.length) {
+    toast('還沒有任何分類可以匯出', true);
+    return;
+  }
+  const r = await run(() => settings.db.exportJson(ids));
+  if (r) toast(`已匯出 ${r.categories} 個分類、${r.items} 筆資料`);
+}
+
+async function importJson() {
+  if (fieldsDirty() && !confirmDiscardFields()) return;
+  const file = await run(() => settings.db.importOpen()).catch(() => null);
+  if (!file) return;
+  const { preview } = file;
+  const selected = new Set(preview.map((c) => c.id));
+  const hasConflict = () => preview.some((c) => c.exists && selected.has(c.id));
+  let conflict = 'merge';
+
+  const conflictBox = h('div', { class: 'import-conflict' },
+    h('div', { class: 'hint' }, '分類代碼已存在時：'),
+    [['merge', '合併', '保留現有資料；加入新欄位與新資料，相同 id 的資料以檔案內容更新'],
+      ['replace', '取代', '用檔案的欄位與資料完全取代現有分類（現有資料會刪除）'],
+      ['skip', '略過', '不匯入已存在的分類']
+    ].map(([v, label, desc]) => h('label', { class: 'radio-row' },
+      h('input', { type: 'radio', name: 'conflict', value: v, checked: v === conflict, onchange: () => { conflict = v; } }),
+      h('span', {}, h('b', {}, label), h('span', { class: 'hint' }, ` — ${desc}`))
+    ))
+  );
+  const syncConflict = () => { conflictBox.hidden = !hasConflict(); };
+
+  const list = h('div', { class: 'import-list' }, preview.map((c) =>
+    h('label', { class: 'import-row' },
+      h('input', {
+        type: 'checkbox', checked: true,
+        onchange: (e) => { e.target.checked ? selected.add(c.id) : selected.delete(c.id); syncConflict(); }
+      }),
+      h('span', { class: 'import-name' }, c.name, h('span', { class: 'mono hint' }, ` ${c.id}`)),
+      h('span', { class: 'import-meta' },
+        `${c.fields} 欄位・${c.items} 筆`,
+        c.exists && h('span', { class: 'badge warn', title: `目前「${c.existingName}」有 ${c.existingItems} 筆資料` }, '已存在')
+      )
+    )
+  ));
+  syncConflict();
+
+  openModal({
+    title: `匯入「${file.fileName}」`,
+    body: h('div', {}, h('p', { class: 'hint mb' }, '選擇要匯入的分類：'), list, conflictBox),
+    okText: '匯入',
+    onOk: async () => {
+      if (!selected.size) throw new Error('請至少選擇一個分類');
+      if (conflict === 'replace' && hasConflict()) {
+        const names = preview.filter((c) => c.exists && selected.has(c.id)).map((c) => `「${c.existingName}」`).join('、');
+        if (!window.confirm(`確定要取代 ${names} 嗎？現有的欄位與資料會被檔案內容覆蓋。`)) throw new Error('已取消');
+      }
+      const report = await settings.db.importApply({ conflict, onlyIds: [...selected] });
+      const done = report.filter((r) => r.action !== 'skipped');
+      const added = report.reduce((n, r) => n + r.added, 0);
+      const updated = report.reduce((n, r) => n + r.updated, 0);
+      if (done.length) dbView.current = done[0].id;
+      dbView.sub = 'items';
+      dbView.draftFields = null;
+      await refreshCurrent();
+      const skipped = report.length - done.length;
+      toast(`匯入完成：${done.length} 個分類，新增 ${added} 筆${updated ? `、更新 ${updated} 筆` : ''}${skipped ? `，略過 ${skipped} 個` : ''}`);
+    }
+  });
+}
 
 async function refreshCurrent() {
   await loadCats();

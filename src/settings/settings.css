@@ -248,3 +248,29 @@ input:not([type=checkbox]):disabled, select:disabled { color: var(--muted); back
 td select { min-width: 90px; background: transparent; border-color: transparent; }
 td select:hover { border-color: var(--line-strong); }
 td input.time-input { width: 72px; min-width: 72px; text-align: center; }
+
+/* ---------- 匯入／匯出 ---------- */
+.db-cats-tools { display: flex; gap: 4px; padding: 0 12px 10px; margin-top: -4px; }
+.db-cats-tools .btn { flex: 1; padding: 3px 4px; }
+.mb { margin-bottom: 8px; }
+.import-list { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.import-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); cursor: pointer; }
+.import-row:first-child { border-top: 0; }
+.import-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.badge.warn { color: #ffd58f; border-color: rgba(255, 213, 143, 0.5); }
+.import-conflict { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.import-conflict[hidden] { display: none; }
+.radio-row { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; line-height: 1.45; }
+.radio-row input { margin-top: 3px; accent-color: var(--gold); }
+/* 欄位多時表格會橫向捲動，操作欄固定在右側 */
+td.actions, th:last-child { position: sticky; right: 0; }
+td.actions { background: var(--panel); box-shadow: -8px 0 8px -8px rgba(0, 0, 0, 0.6); }
+tbody tr:hover td.actions { background: #1e2130; }
+th:last-child { z-index: 2; }
+
+/* ---------- 資料表欄位設定 ---------- */
+.ref-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+.ref-grid label { display: flex; flex-direction: column; gap: 3px; }
+.ref-editor > .hint { font-size: 11px; }
+.warn-text { color: #ffd58f !important; margin-top: 8px; }

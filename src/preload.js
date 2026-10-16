@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('widget', {
     categories: () => dbCall('listCategories'),
     category: (id) => dbCall('getCategory', id),
     items: (categoryId) => dbCall('listItems', categoryId),
+    /** 下拉選單／資料表欄位的選項 [{ label, value }] */
+    options: (categoryId, fieldKey) => dbCall('fieldOptions', categoryId, fieldKey),
     add: (categoryId, data) => dbCall('addItem', categoryId, data),
     update: (categoryId, itemId, data) => dbCall('updateItem', categoryId, itemId, data),
     remove: (categoryId, itemId) => dbCall('removeItem', categoryId, itemId),

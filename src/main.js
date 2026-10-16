@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -450,7 +450,7 @@ ipcMain.handle('settings:update', (_e, action, payload = {}) => {
 // 資料庫 IPC（設定視窗與所有小工具共用）
 // ---------------------------------------------------------------------------
 const DB_METHODS = {
-  read: ['listCategories', 'getCategory', 'listItems'],
+  read: ['listCategories', 'getCategory', 'listItems', 'fieldOptions'],
   write: ['addItem', 'updateItem', 'removeItem', 'moveItem'],
   schema: ['createCategory', 'updateCategory', 'deleteCategory']
 };
@@ -460,6 +460,61 @@ ipcMain.handle('db:call', (e, method, ...args) => {
   const allowed = [...DB_METHODS.read, ...DB_METHODS.write, ...(fromSettings ? DB_METHODS.schema : [])];
   if (!allowed.includes(method)) throw new Error(`不允許的資料庫操作：${method}`);
   return db[method](...args);
+});
+
+// ---- 匯出／匯入 JSON（只允許設定視窗呼叫）----
+let pendingImport = null; // { text, filePath }
+
+function assertSettings(e) {
+  if (!settingsWin || settingsWin.isDestroyed() || e.sender !== settingsWin.webContents) {
+    throw new Error('只能從設定視窗操作');
+  }
+}
+
+ipcMain.handle('db:export', async (e, ids) => {
+  assertSettings(e);
+  const data = db.exportData(ids);
+  if (!data.categories.length) throw new Error('沒有可以匯出的分類');
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const name = data.categories.length === 1 && ids && ids.length === 1
+    ? `${data.categories[0].id}-${stamp}.json`
+    : `desktop-tools-database-${stamp}.json`;
+  const r = await dialog.showSaveDialog(settingsWin, {
+    title: '匯出資料庫',
+    defaultPath: path.join(app.getPath('documents'), name),
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, JSON.stringify(data, null, 2), 'utf8');
+  return {
+    filePath: r.filePath,
+    categories: data.categories.length,
+    items: data.categories.reduce((n, c) => n + c.items.length, 0)
+  };
+});
+
+ipcMain.handle('db:import-open', async (e) => {
+  assertSettings(e);
+  const r = await dialog.showOpenDialog(settingsWin, {
+    title: '匯入資料庫',
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  const filePath = r.filePaths[0];
+  if (fs.statSync(filePath).size > 50 * 1024 * 1024) throw new Error('檔案太大（超過 50MB）');
+  const text = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
+  const preview = db.previewImport(text); // 格式錯誤會在這裡丟出
+  pendingImport = { text, filePath };
+  return { fileName: path.basename(filePath), preview };
+});
+
+ipcMain.handle('db:import-apply', (e, options) => {
+  assertSettings(e);
+  if (!pendingImport) throw new Error('請先選擇要匯入的檔案');
+  const report = db.importData(pendingImport.text, options || {});
+  pendingImport = null;
+  return report;
 });
 
 db.events.on('change', (info) => {
