@@ -40,6 +40,50 @@ function safeDecodeURL(text) {
   }
 }
 
+/**
+ * JSON 格式化：只調整空白與縮排，數值、字串原樣保留。
+ * 不用 JSON.stringify(JSON.parse(text))，因為那會改掉資料：
+ * 超過 2^53 的整數會失去精度（例如 ID）、1.0 變 1、1e3 變 1000。
+ * 呼叫前須先確認 text 是合法 JSON。
+ */
+function formatJSON(text, indent = '  ') {
+  let out = '';
+  let depth = 0;
+  const newline = () => '\n' + indent.repeat(depth);
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      // 整段字串原樣複製（含跳脫字元）
+      let j = i + 1;
+      while (text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (ch === '{' || ch === '[') {
+      // 空物件／空陣列維持 {} 與 []
+      let j = i + 1;
+      while (/\s/.test(text[j])) j++;
+      if (text[j] === (ch === '{' ? '}' : ']')) {
+        out += ch + text[j];
+        i = j;
+      } else {
+        depth++;
+        out += ch + newline();
+      }
+    } else if (ch === '}' || ch === ']') {
+      depth--;
+      out += newline() + ch;
+    } else if (ch === ',') {
+      out += ',' + newline();
+    } else if (ch === ':') {
+      out += ': ';
+    } else if (!/\s/.test(ch)) {
+      out += ch; // 數字、true、false、null
+    }
+  }
+  return out;
+}
+
 window.TOOLS = [
   {
     id: 'url-decode',
@@ -52,6 +96,26 @@ window.TOOLS = [
       if (decoded === text) return { ok: false, message: '剪貼簿沒有可解碼的內容' };
       await window.widget.copyText(decoded);
       return { ok: true, message: '已解碼並複製到剪貼簿' };
+    }
+  },
+  {
+    id: 'json-format',
+    name: 'JSON 格式化',
+    icon: '<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5a2 2 0 0 0 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>',
+    async run() {
+      const raw = await window.widget.readText();
+      const text = (raw || '').replace(/^\uFEFF/, '').trim(); // 去掉 BOM 與前後空白
+      if (!text) return { ok: false, message: '剪貼簿是空的' };
+      // 只處理物件或陣列；單純的數字、字串雖然也是合法 JSON，但沒有格式化的意義
+      if (!/^[[{]/.test(text)) return { ok: false, message: '剪貼簿不是 JSON 物件或陣列' };
+      try {
+        JSON.parse(text);
+      } catch {
+        return { ok: false, message: '剪貼簿不是有效的 JSON' };
+      }
+      const formatted = formatJSON(text);
+      await window.widget.copyText(formatted);
+      return { ok: true, message: formatted === raw ? 'JSON 已是格式化狀態' : '已格式化並複製到剪貼簿' };
     }
   }
 ];
