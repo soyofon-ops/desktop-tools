@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>JWT 解碼</title>
+<style>
+  body {
+    --panel: rgba(18, 21, 27, 0.97);
+    --stroke: #2f3644;
+    --tick: #4a5363;
+    --accent: #3dd6b5;
+    --surface: #1a1e26;
+    --hover: #232a34;
+    --muted: #9aa3b2;
+    --text: #e6e9ee;
+    --warn: #f2994a;
+    --c-header: #ff7a85;
+    --c-payload: #c792ea;
+    --c-sig: #6ea8fe;
+    --j-key: #7fdbca;
+    --j-str: #e6c07b;
+    --j-num: #f78c6c;
+    --j-lit: #c792ea;
+  }
+  body[data-theme="light"] {
+    --panel: rgba(247, 249, 252, 0.98);
+    --stroke: #d2d9e3;
+    --tick: #b6c0cd;
+    --accent: #0b8f75;
+    --surface: #eef1f5;
+    --hover: #e1f2ee;
+    --muted: #5b6575;
+    --text: #1b1f26;
+    --warn: #b4560a;
+    --c-header: #c4304a;
+    --c-payload: #7c3aed;
+    --c-sig: #1d5fd1;
+    --j-key: #0b7a63;
+    --j-str: #8a5a00;
+    --j-num: #b4440f;
+    --j-lit: #7c3aed;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    padding: 8px;
+    font-family: "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", -apple-system, "PingFang TC", system-ui, sans-serif;
+    font-size: 13px; color: var(--text);
+  }
+  .mono, pre { font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg.icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  .panel {
+    position: relative; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--stroke); border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+  /* 上緣中央的發光線，和儀表盤一致 */
+  .panel::before {
+    content: ""; position: absolute; top: 0; left: 50%; width: 68px; height: 2px; margin-left: -34px;
+    border-radius: 2px; background: var(--accent);
+  }
+
+  /* 標題列：可拖曳移動 */
+  .titlebar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 10px 8px 14px;
+    -webkit-app-region: drag; user-select: none;
+  }
+  .titlebar h1 { font-size: 13px; font-weight: 600; }
+  .chips { display: flex; gap: 4px; flex: 1; min-width: 0; }
+  .chip {
+    padding: 1px 6px; border-radius: 4px; font-size: 11px;
+    background: var(--surface); border: 1px solid var(--stroke); color: var(--muted);
+  }
+  .close {
+    -webkit-app-region: no-drag;
+    width: 26px; height: 26px; border-radius: 6px; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .close:hover { background: var(--hover); color: var(--text); }
+
+  /* 有效期限 */
+  .status {
+    display: flex; align-items: center; gap: 8px; margin: 0 14px 10px; padding: 7px 10px;
+    border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke); font-size: 12px;
+  }
+  .badge { font-weight: 600; white-space: nowrap; }
+  .status .detail { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status.valid .badge { color: var(--accent); }
+  .status.expired, .status.pending { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+  .status.expired .badge, .status.pending .badge { color: var(--warn); }
+  .status.none .badge { color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status.valid .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .status.expired .dot, .status.pending .dot { background: var(--warn); }
+
+  /* 內容 */
+  .content { flex: 1; overflow: auto; padding: 0 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .content::-webkit-scrollbar { width: 8px; }
+  .content::-webkit-scrollbar-thumb { background: var(--stroke); border-radius: 4px; }
+  section { display: flex; flex-direction: column; gap: 6px; }
+  .sec-head { display: flex; align-items: center; gap: 6px; }
+  .sec-head h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; flex: 1; }
+  .sec-head .sub { font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; margin-left: 4px; }
+  #sec-header h2 { color: var(--c-header); }
+  #sec-payload h2 { color: var(--c-payload); }
+  #sec-sig h2 { color: var(--c-sig); }
+
+  .copy {
+    display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 6px;
+    font-size: 12px; color: var(--muted); border: 1px solid var(--stroke);
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .copy:hover { color: var(--accent); background: var(--hover); border-color: var(--accent); }
+  .copy.done { color: var(--accent); border-color: var(--accent); }
+  .copy .ok { display: none; }
+  .copy.done .ok { display: block; }
+  .copy.done .cp { display: none; }
+
+  pre {
+    padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke);
+    font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    user-select: text; cursor: text;
+  }
+  pre.sig { word-break: break-all; color: var(--c-sig); }
+  .k { color: var(--j-key); }
+  .s { color: var(--j-str); }
+  .n { color: var(--j-num); }
+  .l { color: var(--j-lit); }
+
+  /* 時間欄位 */
+  .times { display: grid; grid-template-columns: auto auto 1fr; gap: 3px 10px; font-size: 12px; padding: 0 2px; }
+  .times[hidden] { display: none; }
+  .times .name { color: var(--muted); }
+  .times .when { font-variant-numeric: tabular-nums; }
+  .times .rel { color: var(--muted); text-align: right; white-space: nowrap; }
+  .note { font-size: 11px; color: var(--muted); }
+
+  .footer { display: flex; justify-content: flex-end; padding: 8px 14px 12px; border-top: 1px solid var(--stroke); }
+</style>
+</head>
+<body data-theme="dark">
+  <div class="panel">
+    <div class="titlebar">
+      <h1>JWT 解碼</h1>
+      <div class="chips" id="chips"></div>
+      <button class="close" id="close" aria-label="關閉" title="關閉（Esc）">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="status" id="status" role="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="badge" id="badge"></span>
+      <span class="detail" id="detail"></span>
+    </div>
+
+    <div class="content">
+      <section id="sec-header">
+        <div class="sec-head">
+          <h2>HEADER<span class="sub">演算法與類型</span></h2>
+          <button class="copy" data-copy="header"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製</span></button>
+        </div>
+        <pre id="header"></pre>
+      </section>
+
+      <section id="sec-payload">
+        <div class="sec-head">
+          <h2>PAYLOAD<span class="sub">資料</span></h2>
+          <button class="copy" data-copy="payload"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製</span></button>
+        </div>
+        <pre id="payload"></pre>
+        <div class="times" id="times"></div>
+      </section>
+
+      <section id="sec-sig">
+        <div class="sec-head">
+          <h2>SIGNATURE<span class="sub">簽章</span></h2>
+          <button class="copy" data-copy="signature"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製</span></button>
+        </div>
+        <pre class="sig" id="signature"></pre>
+        <p class="note">只解碼內容，未驗證簽章（驗證需要簽發方的密鑰）。</p>
+      </section>
+    </div>
+
+    <div class="footer">
+      <button class="copy" data-copy="token"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製原始 Token</span></button>
+    </div>
+  </div>
+  <script src="jwt.js"></script>
+</body>
+</html>

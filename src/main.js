@@ -122,6 +122,7 @@ function openWidget(id) {
 
   win.on('closed', () => {
     entry.win = null;
+    closePopupsOf(id); // 小工具關閉時，它開的彈出視窗一起關
   });
 
   entry.win = win;
@@ -193,6 +194,109 @@ ipcMain.handle('widget:read-text', () => clipboard.readText());
 
 // 螢幕取色：回傳 '#RRGGBB'，取消時為 null（實作見 color-picker.js）
 ipcMain.handle('widget:pick-color', () => pickColor());
+
+// ---------------------------------------------------------------------------
+// 彈出視窗：小工具開啟自己資料夾內的頁面，顯示在小工具旁邊（例如 JWT 解碼結果）
+// ---------------------------------------------------------------------------
+/** key: `${widgetId}:${page}` → { win, owner, data } */
+const popups = new Map();
+
+/** 依小工具位置決定彈出視窗位置：優先放左邊（上緣對齊），其次右邊、下方，最後收進工作區 */
+function popupPosition(ownerBounds, w, h) {
+  const a = screen.getDisplayMatching(ownerBounds).workArea;
+  const fits = (x, y) => x >= a.x && y >= a.y && x + w <= a.x + a.width && y + h <= a.y + a.height;
+  const candidates = [
+    { x: ownerBounds.x - w, y: ownerBounds.y },
+    { x: ownerBounds.x + ownerBounds.width, y: ownerBounds.y },
+    { x: ownerBounds.x + ownerBounds.width - w, y: ownerBounds.y + ownerBounds.height }
+  ];
+  const pos = candidates.find((c) => fits(c.x, c.y)) || candidates[0];
+  return {
+    x: Math.round(Math.min(Math.max(pos.x, a.x), a.x + a.width - w)),
+    y: Math.round(Math.min(Math.max(pos.y, a.y), a.y + a.height - h))
+  };
+}
+
+ipcMain.handle('widget:open-popup', (e, opts = {}) => {
+  const id = widgetIdFromSender(e.sender);
+  if (!id) return false;
+  const { dir, manifest, win: ownerWin } = widgets.get(id);
+
+  // 只允許開啟小工具自己資料夾內的頁面
+  const root = path.resolve(dir);
+  const file = path.resolve(root, String(opts.page || ''));
+  if (!file.startsWith(root + path.sep) || !fs.existsSync(file)) throw new Error('找不到彈出視窗頁面');
+
+  const clamp = (v, min, max, def) => Math.round(Math.min(max, Math.max(min, Number(v) || def)));
+  const w = clamp(opts.width, 240, 1200, 420);
+  const h = clamp(opts.height, 160, 900, 480);
+  const key = `${id}:${file}`;
+  let p = popups.get(key);
+
+  if (p && !p.win.isDestroyed()) {
+    // 已經開著：換成新資料並帶到前面
+    p.data = opts.data ?? null;
+    p.win.webContents.send('popup:data', p.data);
+    p.win.show();
+    p.win.focus();
+    return true;
+  }
+
+  const ob = ownerWin.getBounds();
+  const pos = popupPosition({ x: ob.x, y: ob.y, width: manifest.width, height: manifest.height }, w, h);
+  const win = new BrowserWindow({
+    ...pos,
+    width: w,
+    height: h,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    title: manifest.name,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      preload: path.join(__dirname, 'popup-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  applyAlwaysOnTop(win, !!config.widget(id).alwaysOnTop);
+  p = { win, owner: id, data: opts.data ?? null };
+  popups.set(key, p);
+  win.on('closed', () => popups.delete(key));
+  win.once('ready-to-show', () => { win.show(); win.focus(); });
+  win.loadFile(file);
+  return true;
+});
+
+function popupFromSender(sender) {
+  for (const p of popups.values()) if (!p.win.isDestroyed() && p.win.webContents === sender) return p;
+  return null;
+}
+
+function closePopupsOf(id) {
+  for (const p of [...popups.values()]) if (p.owner === id && !p.win.isDestroyed()) p.win.close();
+}
+
+ipcMain.handle('popup:get-data', (e) => {
+  const p = popupFromSender(e.sender);
+  return p ? p.data : null;
+});
+ipcMain.handle('popup:copy-text', (e, text) => {
+  if (!popupFromSender(e.sender)) return false;
+  clipboard.writeText(String(text ?? ''));
+  return true;
+});
+ipcMain.on('popup:close', (e) => {
+  const p = popupFromSender(e.sender);
+  if (p) p.win.close();
+});
 
 ipcMain.on('widget:set-settings', (e, settings) => {
   const id = widgetIdFromSender(e.sender);

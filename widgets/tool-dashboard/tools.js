@@ -3,7 +3,7 @@
 //   name ：工具名稱，滑鼠移入按鈕時以提示顯示
 //   icon ：24×24 viewBox 的 SVG 內容（stroke 用 currentColor）
 //   run  ：async () => ({ ok: true|false, message: '通知文字', color?: '#RRGGBB' })
-//          有 color 時，通知左側顯示該顏色的色塊
+//          有 color 時，通知左側顯示該顏色的色塊；silent: true 時不顯示通知（例如已開啟彈出視窗）
 
 /**
  * URL 解碼：盡量把文字中的 %XX 解開。
@@ -155,6 +155,59 @@ async function pickScreenColor() {
   return normalizeHex(await window.widget.pickColor());
 }
 
+/**
+ * 解析 JWT（JWS compact：header.payload.signature）。不驗證簽章。
+ * 接受前後空白、引號、Bearer 前綴與整行 Authorization 標頭。
+ * 回傳解析結果，或 { error: 'invalid' | 'jwe' }。
+ */
+function parseJWT(input) {
+  const token = input.trim()
+    .replace(/^(["'])(.*)\1$/s, '$2')          // 前後引號
+    .replace(/^authorization:\s*/i, '')        // 整行 HTTP 標頭
+    .replace(/^bearer\s+/i, '')
+    .trim();
+  const parts = token.split('.');
+  const seg = /^[A-Za-z0-9_-]*$/;
+  if (parts.length === 5 && parts.every((p) => seg.test(p))) return { error: 'jwe' };
+  if (parts.length !== 3 || !parts.every((p) => seg.test(p)) || !parts[0] || !parts[1]) return { error: 'invalid' };
+
+  const h = base64Decode(parts[0]);
+  if (h.error) return { error: 'invalid' };
+  let header;
+  try {
+    header = JSON.parse(h.text);
+  } catch {
+    return { error: 'invalid' };
+  }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) return { error: 'invalid' };
+
+  const p = base64Decode(parts[1]);
+  if (p.error) return { error: 'invalid' };
+  let payload = null;
+  try {
+    payload = JSON.parse(p.text);
+  } catch { /* payload 不一定是 JSON，原樣顯示 */ }
+  const payloadIsJson = !!payload && typeof payload === 'object';
+
+  // 時間欄位（秒）；非數字的不處理
+  const claims = {};
+  if (payloadIsJson) {
+    for (const k of ['exp', 'nbf', 'iat']) if (Number.isFinite(payload[k])) claims[k] = payload[k];
+  }
+
+  return {
+    token,
+    alg: typeof header.alg === 'string' ? header.alg : '',
+    typ: typeof header.typ === 'string' ? header.typ : '',
+    // 用 formatJSON 排版，大整數等數值原樣保留
+    header: formatJSON(h.text),
+    payload: payloadIsJson ? formatJSON(p.text) : p.text,
+    payloadIsJson,
+    signature: parts[2],
+    claims
+  };
+}
+
 window.TOOLS = [
   {
     id: 'url-decode',
@@ -223,6 +276,25 @@ window.TOOLS = [
       if (!hex) return { ok: false, message: '已取消取色' };
       await window.widget.copyText(hex);
       return { ok: true, message: `已複製色碼 ${hex}`, color: hex };
+    }
+  },
+  {
+    id: 'jwt-decode',
+    name: 'JWT 解碼',
+    icon: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text || !text.trim()) return { ok: false, message: '剪貼簿是空的' };
+      const r = parseJWT(text);
+      if (r.error === 'jwe') return { ok: false, message: '這是加密的 JWT（JWE），無法解碼' };
+      if (r.error) return { ok: false, message: '剪貼簿不是有效的 JWT' };
+      await window.widget.openPopup({
+        page: 'popups/jwt.html',
+        width: 456,
+        height: 560,
+        data: { ...r, theme: document.body.dataset.theme }
+      });
+      return { ok: true, silent: true }; // 結果顯示在彈出視窗，不另外跳通知
     }
   }
 ];

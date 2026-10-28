@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('widget', {
   pickColor: () => ipcRenderer.invoke('widget:pick-color'),
   /** 作業系統：'win32' | 'darwin' | 'linux' */
   platform: process.platform,
+  /**
+   * 在小工具旁開啟彈出視窗，顯示小工具資料夾內的頁面；同一頁已開啟時改為更新資料
+   *   await widget.openPopup({ page: 'popups/jwt.html', width: 440, height: 520, data: {...} })
+   * 頁面內用 window.popup.getData() / onData() 取得 data
+   */
+  openPopup: (opts) => ipcRenderer.invoke('widget:open-popup', opts),
 
   /**
    * 資料庫（分類與欄位在「設定 → 資料庫」建立）

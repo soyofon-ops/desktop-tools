@@ -163,6 +163,7 @@ async function runTool(tool, btn) {
     btn.classList.add('done');
     setTimeout(() => btn.classList.remove('done'), TOAST_MS);
   }
+  if (result && result.silent) return; // 工具自己顯示結果（例如彈出視窗）
   showToast(result || { ok: false, message: '執行失敗' });
 }
 
