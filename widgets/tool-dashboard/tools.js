@@ -84,6 +84,49 @@ function formatJSON(text, indent = '  ') {
   return out;
 }
 
+/**
+ * Base64 編碼：先轉成 UTF-8 位元組再編碼（btoa 直接處理中文會丟錯誤）。
+ */
+function base64Encode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  // 分段轉換，避免大量資料時 String.fromCharCode 參數過多
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+/**
+ * Base64 解碼成 UTF-8 文字。
+ * 容許：換行與空白、URL-safe（- _）、缺少 = 補位、data:…;base64, 前綴。
+ * 回傳 { text } 或 { error: 'invalid' | 'binary' }。
+ */
+function base64Decode(input) {
+  let s = input.trim().replace(/^data:[^,]*;base64,/i, '').replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(s)) return { error: 'invalid' };
+  s = s.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+  if (s.length % 4 === 1) return { error: 'invalid' };
+  s += '='.repeat((4 - (s.length % 4)) % 4);
+
+  let bin;
+  try {
+    bin = atob(s);
+  } catch {
+    return { error: 'invalid' };
+  }
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return { error: 'binary' }; // 不是合法的 UTF-8，多半是圖片等二進位資料
+  }
+  // 含控制字元（Tab、換行除外）也視為二進位資料
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text)) return { error: 'binary' };
+  return { text };
+}
+
 window.TOOLS = [
   {
     id: 'url-decode',
@@ -116,6 +159,31 @@ window.TOOLS = [
       const formatted = formatJSON(text);
       await window.widget.copyText(formatted);
       return { ok: true, message: formatted === raw ? 'JSON 已是格式化狀態' : '已格式化並複製到剪貼簿' };
+    }
+  },
+  {
+    id: 'base64-encode',
+    name: 'Base64 編碼',
+    icon: '<rect x="14" y="14" width="4" height="6" rx="2"/><rect x="6" y="4" width="4" height="6" rx="2"/><path d="M6 20h4"/><path d="M14 10h4"/><path d="M6 14h2v6"/><path d="M14 4h2v6"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text) return { ok: false, message: '剪貼簿是空的' };
+      await window.widget.copyText(base64Encode(text)); // 原樣編碼，不去除前後空白與換行
+      return { ok: true, message: '已編碼並複製到剪貼簿' };
+    }
+  },
+  {
+    id: 'base64-decode',
+    name: 'Base64 解碼',
+    icon: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text || !text.trim()) return { ok: false, message: '剪貼簿是空的' };
+      const r = base64Decode(text);
+      if (r.error === 'invalid') return { ok: false, message: '剪貼簿不是有效的 Base64' };
+      if (r.error === 'binary') return { ok: false, message: '解碼結果不是文字，剪貼簿不變' };
+      await window.widget.copyText(r.text);
+      return { ok: true, message: '已解碼並複製到剪貼簿' };
     }
   }
 ];

@@ -89,10 +89,11 @@ function syncHeight() {
 let tipTimer = null;
 let tipHideTimer = null;
 let tipHiddenAt = 0;        // 上次收起提示的時間，用來判斷是否從一個按鈕直接移到另一個
+let hovered = null;         // 目前滑鼠所在的按鈕（通知收起後要補顯示它的提示）
 
 function bindTip(el) {
-  el.addEventListener('pointerenter', () => scheduleTip(el));
-  el.addEventListener('pointerleave', hideTip);
+  el.addEventListener('pointerenter', () => { hovered = el; scheduleTip(el); });
+  el.addEventListener('pointerleave', () => { if (hovered === el) hovered = null; hideTip(); });
   el.addEventListener('focus', () => { if (el.matches(':focus-visible')) showTip(el); });
   el.addEventListener('blur', hideTip);
   el.addEventListener('click', hideTip);
@@ -194,6 +195,8 @@ function hideToast() {
     els.toast.hidden = true;
     toastOn = false;
     syncHeight();
+    // 滑鼠一直停在按鈕上時，通知收起後補顯示提示
+    if (hovered) scheduleTip(hovered);
   }, 200);
 }
 
