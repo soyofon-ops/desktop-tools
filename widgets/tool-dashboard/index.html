@@ -101,6 +101,19 @@
   .tool svg.icon { width: 14px; height: 14px; stroke-width: 2.2; }
   .slot { width: 28px; height: 28px; border-radius: 50%; border: 1px dashed var(--slot); }
 
+  /* 拖曳調整順序 */
+  html.tool-dragging, html.tool-dragging * { cursor: grabbing !important; }
+  .tool.placeholder { background: transparent !important; border: 1px dashed var(--accent); box-shadow: none !important; }
+  .tool.placeholder svg { opacity: 0; }
+  .tool.ghost {
+    position: absolute; left: 0; top: 0; z-index: 5; pointer-events: none; transition: none;
+    background: var(--hover);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 14px var(--glow), 0 6px 12px rgba(0, 0, 0, 0.35);
+  }
+  .arrow.drag-over { color: var(--accent); background: var(--hover); box-shadow: 0 0 0 1px var(--accent); z-index: 6; }
+  /* 拖到箭頭上時鬼影變淡，看得到箭頭亮起 */
+  .tool.ghost.over-arrow { opacity: 0.45; transition: opacity 0.12s; }
+
   /* 頁碼 */
   .dots { position: absolute; left: 0; right: 0; bottom: 3px; display: flex; justify-content: center; gap: 6px; }
   .dots span { display: block; width: 4px; height: 3px; border-radius: 2px; background: var(--tick); transition: width 0.25s, background 0.25s; }
