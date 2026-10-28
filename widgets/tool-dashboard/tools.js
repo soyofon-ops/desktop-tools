@@ -208,6 +208,28 @@ function parseJWT(input) {
   };
 }
 
+/**
+ * 從剪貼簿文字取出正規表示式。
+ * 接受 /pattern/flags 字面值，或直接是 pattern 本身（flags 為空）。
+ * 回傳 { source, flags } 或 { error: 'JS 的錯誤訊息' }。
+ */
+function parseRegexInput(text) {
+  const s = text.trim();
+  let source = s;
+  let flags = '';
+  const last = s.lastIndexOf('/');
+  if (s.startsWith('/') && last > 0 && /^[dgimsuyv]*$/.test(s.slice(last + 1))) {
+    source = s.slice(1, last);
+    flags = s.slice(last + 1);
+  }
+  try {
+    new RegExp(source, flags); // eslint-disable-line no-new
+  } catch (err) {
+    return { error: err.message };
+  }
+  return { source, flags };
+}
+
 window.TOOLS = [
   {
     id: 'url-decode',
@@ -295,6 +317,28 @@ window.TOOLS = [
         data: { ...r, theme: document.body.dataset.theme }
       });
       return { ok: true, silent: true }; // 結果顯示在彈出視窗，不另外跳通知
+    }
+  },
+  {
+    id: 'redos-check',
+    name: 'ReDoS 檢查',
+    icon: '<path d="M4 7l4 5-4 5"/><path d="M11 17h3"/><path d="M17 5v5"/><path d="M14.5 6.5l5 2"/><path d="M19.5 6.5l-5 2"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text || !text.trim()) return { ok: false, message: '剪貼簿是空的' };
+      const re = parseRegexInput(text);
+      if (re.error) return { ok: false, message: '剪貼簿不是有效的正規表示式' };
+
+      const popup = (data) => window.widget.openPopup({
+        page: 'popups/redos.html',
+        width: 456,
+        height: 520,
+        data: { ...data, source: re.source, flags: re.flags, theme: document.body.dataset.theme }
+      });
+      await popup({ state: 'loading' }); // 先開視窗顯示「分析中」，複雜的 pattern 可能要幾秒
+      const result = await window.widget.checkRegex(re.source, re.flags);
+      await popup({ state: 'done', ...result });
+      return { ok: true, silent: true };
     }
   }
 ];

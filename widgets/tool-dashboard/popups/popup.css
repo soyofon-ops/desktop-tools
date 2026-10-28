@@ -1,0 +1,113 @@
+/* 小工具彈出視窗共用樣式（JWT 解碼、ReDoS 檢查…） */
+  body {
+    --panel: rgba(18, 21, 27, 0.97);
+    --stroke: #2f3644;
+    --tick: #4a5363;
+    --accent: #3dd6b5;
+    --surface: #1a1e26;
+    --hover: #232a34;
+    --muted: #9aa3b2;
+    --text: #e6e9ee;
+    --warn: #f2994a;
+    --c-header: #ff7a85;
+    --c-payload: #c792ea;
+    --c-sig: #6ea8fe;
+    --j-key: #7fdbca;
+    --j-str: #e6c07b;
+    --j-num: #f78c6c;
+    --j-lit: #c792ea;
+  }
+  body[data-theme="light"] {
+    --panel: rgba(247, 249, 252, 0.98);
+    --stroke: #d2d9e3;
+    --tick: #b6c0cd;
+    --accent: #0b8f75;
+    --surface: #eef1f5;
+    --hover: #e1f2ee;
+    --muted: #5b6575;
+    --text: #1b1f26;
+    --warn: #b4560a;
+    --c-header: #c4304a;
+    --c-payload: #7c3aed;
+    --c-sig: #1d5fd1;
+    --j-key: #0b7a63;
+    --j-str: #8a5a00;
+    --j-num: #b4440f;
+    --j-lit: #7c3aed;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    padding: 8px;
+    font-family: "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", -apple-system, "PingFang TC", system-ui, sans-serif;
+    font-size: 13px; color: var(--text);
+  }
+  .mono, pre { font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  svg.icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  .panel {
+    position: relative; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--stroke); border-radius: 10px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+  /* 上緣中央的發光線，和儀表盤一致 */
+  .panel::before {
+    content: ""; position: absolute; top: 0; left: 50%; width: 68px; height: 2px; margin-left: -34px;
+    border-radius: 2px; background: var(--accent);
+  }
+
+  /* 標題列：可拖曳移動 */
+  .titlebar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 10px 8px 14px;
+    -webkit-app-region: drag; user-select: none;
+  }
+  .titlebar h1 { font-size: 13px; font-weight: 600; }
+  .chips { display: flex; gap: 4px; flex: 1; min-width: 0; }
+  .chip {
+    padding: 1px 6px; border-radius: 4px; font-size: 11px;
+    background: var(--surface); border: 1px solid var(--stroke); color: var(--muted);
+  }
+  .close {
+    -webkit-app-region: no-drag;
+    width: 26px; height: 26px; border-radius: 6px; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .close:hover { background: var(--hover); color: var(--text); }
+
+  /* 內容 */
+  .content { flex: 1; overflow: auto; padding: 0 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .content::-webkit-scrollbar { width: 8px; }
+  .content::-webkit-scrollbar-thumb { background: var(--stroke); border-radius: 4px; }
+  section { display: flex; flex-direction: column; gap: 6px; }
+  .sec-head { display: flex; align-items: center; gap: 6px; }
+  .sec-head h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; flex: 1; }
+  .sec-head .sub { font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; margin-left: 4px; }
+
+  .copy {
+    display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border-radius: 6px;
+    font-size: 12px; color: var(--muted); border: 1px solid var(--stroke);
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .copy:hover { color: var(--accent); background: var(--hover); border-color: var(--accent); }
+  .copy.done { color: var(--accent); border-color: var(--accent); }
+  .copy .ok { display: none; }
+  .copy.done .ok { display: block; }
+  .copy.done .cp { display: none; }
+
+  pre {
+    padding: 10px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke);
+    font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    user-select: text; cursor: text;
+  }
+  .k { color: var(--j-key); }
+  .s { color: var(--j-str); }
+  .n { color: var(--j-num); }
+  .l { color: var(--j-lit); }
+
+  .note { font-size: 11px; color: var(--muted); }
+
+  .footer { display: flex; justify-content: flex-end; padding: 8px 14px 12px; border-top: 1px solid var(--stroke); }

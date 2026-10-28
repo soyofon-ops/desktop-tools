@@ -23,7 +23,11 @@
       "src/**/*",
       "widgets/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/recheck-jar/**"
+    ],
+    "asarUnpack": [
+      "node_modules/recheck-*/**"
     ],
     "win": {
       "icon": "assets/icon.png",
@@ -47,6 +51,8 @@
         "LSUIElement": true
       }
     }
+  },
+  "dependencies": {
+    "recheck": "4.6.2"
   }
 }
-

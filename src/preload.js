@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld('widget', {
    * 頁面內用 window.popup.getData() / onData() 取得 data
    */
   openPopup: (opts) => ipcRenderer.invoke('widget:open-popup', opts),
+  /**
+   * 檢查正規表示式是否有 ReDoS 風險（recheck）
+   *   await widget.checkRegex('^(a+)+$', '') → { status: 'safe'|'vulnerable'|'unknown', complexity, hotspot, attack, error, elapsed }
+   */
+  checkRegex: (source, flags) => ipcRenderer.invoke('widget:check-regex', source, flags),
 
   /**
    * 資料庫（分類與欄位在「設定 → 資料庫」建立）

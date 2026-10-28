@@ -4,6 +4,7 @@ const path = require('path');
 const config = require('./config');
 const db = require('./database');
 const { pickColor } = require('./color-picker');
+const { checkRegex } = require('./redos');
 
 // ---- 只允許一個實例 ----
 if (!app.requestSingleInstanceLock()) {
@@ -194,6 +195,12 @@ ipcMain.handle('widget:read-text', () => clipboard.readText());
 
 // 螢幕取色：回傳 '#RRGGBB'，取消時為 null（實作見 color-picker.js）
 ipcMain.handle('widget:pick-color', () => pickColor());
+
+// ReDoS 檢查（實作見 redos.js，使用 recheck）
+ipcMain.handle('widget:check-regex', (e, source, flags) => {
+  if (!widgetIdFromSender(e.sender)) return null;
+  return checkRegex(source, flags);
+});
 
 // ---------------------------------------------------------------------------
 // 彈出視窗：小工具開啟自己資料夾內的頁面，顯示在小工具旁邊（例如 JWT 解碼結果）

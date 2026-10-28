@@ -13,7 +13,7 @@
 | 小工具    | 說明                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
 | FF14 時鐘 | 顯示艾奧傑亞時間（ET）與本地時間（LT），點擊切換主要顯示的時間，選擇會被記住 |
-| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼），超過 10 個功能自動分頁 |
+| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁 |
 
 ## 開發與打包
 
@@ -94,6 +94,10 @@ await window.widget.openPopup({ page: 'popups/jwt.html', width: 456, height: 560
 //   window.popup.onData(fn)              視窗已開啟時再次 openPopup 帶入的新 data
 //   await window.popup.copyText(text)    複製到剪貼簿
 //   window.popup.close()
+
+// 檢查正規表示式是否有 ReDoS 風險（recheck，在主程序執行）
+const r = await window.widget.checkRegex('^(a+)+$', '');
+// → { status: 'safe' | 'vulnerable' | 'unknown', complexity, hotspot, attack, error, elapsed }
 ```
 
 - 拖曳與點擊會自動區分：拖曳後不會觸發 `click`，所以可以放心在小工具上綁點擊事件。
@@ -124,6 +128,7 @@ await window.widget.openPopup({ page: 'popups/jwt.html', width: 456, height: 560
 | `T` | Base64 解碼 | 把 Base64 解回文字；可接受換行、URL-safe（`-` `_`）、缺少 `=` 補位與 `data:…;base64,` 前綴。不是有效 Base64，或解出來是圖片等二進位資料時顯示橘色提示，剪貼簿不變 |
 | 吸管 | 顏色吸管 | 進入取色模式：畫面凍結並顯示放大鏡與即時色碼，點擊任一點把色碼（`#RRGGBB`）複製到剪貼簿，通知中以色塊顯示；Esc 或右鍵取消，剪貼簿不變。支援多螢幕與 150%／200% 縮放 |
 | 鑰匙 | JWT 解碼 | 解析剪貼簿的 JWT，在儀表盤旁開啟視窗顯示 Header、Payload（語法上色、數值原樣保留）、Signature 與有效期限（有效／已過期／尚未生效，`exp`／`iat`／`nbf` 轉成本地時間），每一段都可複製。接受 `Bearer`、引號、整行 `Authorization:` 標頭；不驗證簽章 |
+| `>_*` | ReDoS 檢查 | 剪貼簿是正規表示式（`/pattern/flags` 或直接是 pattern）時，用 [recheck](https://github.com/makenowjust-labs/recheck) 分析是否有災難性回溯，在儀表盤旁開啟視窗顯示：安全／有風險、時間複雜度（線性、多項式、指數）、pattern 中造成回溯的位置、攻擊字串（可複製 JS 產生式或完整字串）與修正方向。不是有效的正規表示式時顯示橘色提示 |
 
 ### 新增功能
 
@@ -143,6 +148,15 @@ await window.widget.openPopup({ page: 'popups/jwt.html', width: 456, height: 560
 ```
 
 - 彈出視窗優先放在小工具左邊（上緣對齊），放不下時改放右邊或下方；只能開啟小工具自己資料夾內的頁面，小工具關閉時一起關閉。
+
+### ReDoS 檢查與打包
+
+`recheck` 依序使用：原生執行檔（`recheck-<os>-<arch>`，依平台自動安裝）→ Java 版 → 純 JS（worker thread）。
+
+- 原生執行檔放在 `app.asar` 裡無法執行，所以 `package.json` 的 `build.asarUnpack` 把 `node_modules/recheck-*` 解出來，`src/redos.js` 會指向解出後的路徑。
+- Java 版（`recheck-jar`，約 23 MB）需要使用者安裝 Java，不打包進安裝檔。
+- 在 macOS 交叉打包 Windows 版時不會有 Windows 原生執行檔，會改用純 JS（較慢但結果相同），所以建議在 Windows 上 `pnpm dist`。
+- 分析上限 10 秒，超過顯示「分析逾時」；pattern 超過 5000 字元不分析。
 
 ### 顏色吸管的實作方式
 
