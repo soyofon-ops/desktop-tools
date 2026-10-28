@@ -13,6 +13,7 @@
 | 小工具    | 說明                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
 | FF14 時鐘 | 顯示艾奧傑亞時間（ET）與本地時間（LT），點擊切換主要顯示的時間，選擇會被記住 |
+| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼），超過 10 個功能自動分頁 |
 
 ## 開發與打包
 
@@ -55,6 +56,8 @@ widgets/my-widget/
 }
 ```
 
+選填：`"anchor": "top-right"` 讓小工具第一次出現時貼齊螢幕右上角，`"margin"` 為與邊緣的距離（px，預設 12）。
+
 之後在系統匣點「重新掃描小工具」即可出現。
 
 ### 小工具可用的 API
@@ -70,6 +73,13 @@ window.widget.saveSettings({ foo: 1 });
 
 // 位置鎖定狀態改變時
 window.widget.onLockedChange(locked => { ... });
+
+// 讀寫系統剪貼簿文字（小工具視窗常沒有焦點，請用這兩個而不是 navigator.clipboard）
+const text = await window.widget.readText();
+await window.widget.copyText('新的內容');
+
+// 調整視窗高度（例如下方彈出通知），不會小於 widget.json 的 height
+window.widget.setHeight(160);
 ```
 
 - 拖曳與點擊會自動區分：拖曳後不會觸發 `click`，所以可以放心在小工具上綁點擊事件。
@@ -80,6 +90,35 @@ window.widget.onLockedChange(locked => { ... });
 ## 設定檔
 
 `%APPDATA%\Soyofon Desktop Tools\config.json`，記錄開機啟動、鎖定狀態，以及每個小工具的開關、位置與自訂設定。
+
+## 工具儀表盤
+
+預設出現在螢幕右上角的倒梯形面板，每頁 5 × 2 個圓形圖示按鈕。
+
+- 點擊按鈕立即處理剪貼簿內容，結果寫回剪貼簿，面板下方彈出通知（約 2.5 秒後消失）
+- 右上角月亮／太陽圖示切換深色／淺色，選擇會被記住
+- 功能超過 10 個時左右出現箭頭，點擊滑到上一頁／下一頁；第一頁沒有左箭頭、最後一頁沒有右箭頭，下緣顯示目前頁碼
+
+| 圖示 | 功能 | 說明 |
+| --- | --- | --- |
+| 鏈結 | URL 解碼 | 把剪貼簿文字中的 `%XX` 解碼（例如 `%E5%8F%B0%E4%B8%AD` → `台中`）；編碼不完整的片段保留原樣。剪貼簿為空或沒有可解碼內容時顯示橘色提示 |
+
+### 新增功能
+
+在 `widgets/tool-dashboard/tools.js` 的 `TOOLS` 加一筆：
+
+```js
+{
+  id: 'my-tool',
+  title: '滑鼠停留時的說明',
+  icon: '<path d="…"/>',            // 24×24 viewBox 的 SVG 內容，線條用 currentColor
+  async run() {
+    const text = await window.widget.readText();
+    await window.widget.copyText(text.toUpperCase());
+    return { ok: true, message: '已完成' };  // ok: false 會顯示橘色提示
+  }
+}
+```
 
 ## 艾奧傑亞時間算法
 

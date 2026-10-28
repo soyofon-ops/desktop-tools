@@ -1,0 +1,10 @@
+{
+  "id": "tool-dashboard",
+  "name": "工具儀表盤",
+  "entry": "index.html",
+  "width": 296,
+  "height": 126,
+  "defaultEnabled": true,
+  "anchor": "top-right",
+  "margin": 4
+}

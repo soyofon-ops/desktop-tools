@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('widget', {
   setHeight: (height) => ipcRenderer.send('widget:set-height', height),
   /** 複製文字到系統剪貼簿 */
   copyText: (text) => ipcRenderer.invoke('widget:copy-text', text),
+  /** 讀取系統剪貼簿的文字 */
+  readText: () => ipcRenderer.invoke('widget:read-text'),
 
   /**
    * 資料庫（分類與欄位在「設定 → 資料庫」建立）

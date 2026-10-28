@@ -57,9 +57,14 @@ function clampToDisplays(x, y, w, h) {
   return { x: a.x + a.width - w - 40, y: a.y + 40 };
 }
 
-function defaultPosition(index, w) {
+function defaultPosition(index, m) {
   const a = screen.getPrimaryDisplay().workArea;
-  return { x: a.x + a.width - w - 40, y: a.y + 40 + index * 140 };
+  // widget.json 可指定 "anchor": "top-right"，預設貼齊工作區右上角（距離 margin px）
+  if (m.anchor === 'top-right') {
+    const margin = Number.isFinite(m.margin) ? m.margin : 12;
+    return { x: a.x + a.width - m.width - margin, y: a.y + margin };
+  }
+  return { x: a.x + a.width - m.width - 40, y: a.y + 40 + index * 140 };
 }
 
 function openWidget(id) {
@@ -72,7 +77,7 @@ function openWidget(id) {
   if (Number.isFinite(cfg.x) && Number.isFinite(cfg.y)) {
     pos = clampToDisplays(cfg.x, cfg.y, m.width, m.height);
   } else {
-    pos = defaultPosition([...widgets.keys()].indexOf(id), m.width);
+    pos = defaultPosition([...widgets.keys()].indexOf(id), m);
   }
 
   const win = new BrowserWindow({
@@ -182,6 +187,9 @@ ipcMain.handle('widget:copy-text', (_e, text) => {
   return true;
 });
 
+// 讀取系統剪貼簿文字（理由同上）
+ipcMain.handle('widget:read-text', () => clipboard.readText());
+
 ipcMain.on('widget:set-settings', (e, settings) => {
   const id = widgetIdFromSender(e.sender);
   if (!id) return;
@@ -269,7 +277,7 @@ function resetWidgetPosition(id) {
   const c = config.widget(id);
   delete c.x;
   delete c.y;
-  const p = defaultPosition([...widgets.keys()].indexOf(id), entry.manifest.width);
+  const p = defaultPosition([...widgets.keys()].indexOf(id), entry.manifest);
   if (entry.win) entry.win.setPosition(p.x, p.y);
   config.saveNow();
 }
