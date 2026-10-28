@@ -1,6 +1,6 @@
 // 工具儀表盤的小功能清單
-// 新增功能：在 TOOLS 加一筆 { id, title, icon, run }，超過 10 個會自動分頁
-//   title：滑鼠停留時的提示
+// 新增功能：在 TOOLS 加一筆 { id, name, icon, run }，超過 10 個會自動分頁
+//   name ：工具名稱，滑鼠移入按鈕時以提示顯示
 //   icon ：24×24 viewBox 的 SVG 內容（stroke 用 currentColor）
 //   run  ：async () => ({ ok: true|false, message: '通知文字' })
 
@@ -43,7 +43,7 @@ function safeDecodeURL(text) {
 window.TOOLS = [
   {
     id: 'url-decode',
-    title: 'URL 解碼（剪貼簿）',
+    name: 'URL 解碼',
     icon: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     async run() {
       const text = await window.widget.readText();

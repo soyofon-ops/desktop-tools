@@ -3,6 +3,10 @@ const PER_PAGE = 10;
 const PAGE_STEP = 204;      // 一頁 188（5 × 28 + 4 × 12）+ 頁間距 16
 const BASE_HEIGHT = 126;    // widget.json 的 height
 const TOAST_HEIGHT = 38;    // 6px 間距 + 32px 通知
+const TIP_HEIGHT = 20;      // 工具提示需要多出的高度（6px 間距 + 24px 提示 + 陰影，扣掉原本留白）
+const TIP_DELAY = 350;      // 滑鼠停留多久才顯示提示
+const TIP_MIN_X = 22;       // 提示的左右界線：面板下方斜邊在這個高度的位置
+const TIP_MAX_X = 258;
 const TOAST_MS = 2500;
 
 const tools = Array.isArray(window.TOOLS) ? window.TOOLS : [];
@@ -15,6 +19,8 @@ const els = {
   next: document.getElementById('next'),
   dots: document.getElementById('dots'),
   theme: document.getElementById('theme'),
+  tip: document.getElementById('tip'),
+  tipText: document.getElementById('tip-text'),
   toast: document.getElementById('toast'),
   toastText: document.getElementById('toast-text')
 };
@@ -44,8 +50,9 @@ function buildPages() {
 function toolButton(tool) {
   const btn = document.createElement('button');
   btn.className = 'tool';
-  btn.title = tool.title;
-  btn.setAttribute('aria-label', tool.title);
+  btn.dataset.tip = tool.name;
+  btn.setAttribute('aria-label', tool.name);
+  bindTip(btn);
   btn.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${tool.icon}</svg>`;
   btn.addEventListener('click', () => runTool(tool, btn));
   return btn;
@@ -68,6 +75,73 @@ function goTo(p) {
   // 被滑出畫面的按鈕不要被 Tab 選到
   [...els.track.children].forEach((pg, i) => { pg.inert = i !== page; });
 }
+
+// ---- 視窗高度：通知優先，其次是工具提示 ----
+let toastOn = false;
+let tipOn = false;
+
+function syncHeight() {
+  if (!hasApi()) return;
+  window.widget.setHeight(BASE_HEIGHT + (toastOn ? TOAST_HEIGHT : tipOn ? TIP_HEIGHT : 0));
+}
+
+// ---- 工具提示 ----
+let tipTimer = null;
+let tipHideTimer = null;
+let tipHiddenAt = 0;        // 上次收起提示的時間，用來判斷是否從一個按鈕直接移到另一個
+
+function bindTip(el) {
+  el.addEventListener('pointerenter', () => scheduleTip(el));
+  el.addEventListener('pointerleave', hideTip);
+  el.addEventListener('focus', () => { if (el.matches(':focus-visible')) showTip(el); });
+  el.addEventListener('blur', hideTip);
+  el.addEventListener('click', hideTip);
+}
+
+function scheduleTip(el) {
+  clearTimeout(tipTimer);
+  // 剛從另一個按鈕移過來（提示還在或剛收起）就直接顯示，不再等待
+  const instant = tipOn || Date.now() - tipHiddenAt < 300;
+  tipTimer = setTimeout(() => showTip(el), instant ? 0 : TIP_DELAY);
+}
+
+function showTip(el) {
+  if (toastOn || !el.dataset.tip) return;
+  clearTimeout(tipHideTimer);
+  els.tipText.textContent = el.dataset.tip;
+  els.tip.hidden = false;
+
+  // 置中對齊按鈕，超出斜邊範圍時往內收，箭頭仍指向按鈕
+  const stage = els.tip.offsetParent.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const cx = r.left + r.width / 2 - stage.left;
+  const w = els.tip.offsetWidth;
+  const left = Math.max(TIP_MIN_X, Math.min(TIP_MAX_X - w, cx - w / 2));
+  els.tip.style.left = `${left}px`;
+  // 箭頭盡量指向按鈕，但不超出提示本身的圓角範圍
+  els.tip.style.setProperty('--caret', `${Math.max(10, Math.min(w - 10, cx - left))}px`);
+
+  if (!tipOn) {
+    tipOn = true;
+    syncHeight(); // 先長高再顯示
+  }
+  requestAnimationFrame(() => els.tip.classList.add('show'));
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  if (!tipOn) return;
+  tipOn = false;
+  tipHiddenAt = Date.now();
+  els.tip.classList.remove('show');
+  tipHideTimer = setTimeout(() => {
+    if (tipOn) return;
+    els.tip.hidden = true;
+    syncHeight(); // 淡出後再縮回
+  }, 120);
+}
+
+[els.theme, els.prev, els.next].forEach(bindTip);
 
 els.prev.addEventListener('click', () => goTo(page - 1));
 els.next.addEventListener('click', () => goTo(page + 1));
@@ -101,8 +175,13 @@ function showToast({ ok, message }) {
   els.toast.classList.toggle('error', !ok);
   els.toast.setAttribute('role', ok ? 'status' : 'alert');
 
+  // 通知與提示在同一個位置，通知優先
+  hideTip();
+  clearTimeout(tipHideTimer);
+  els.tip.hidden = true;
   // 先把視窗往下長，再顯示通知
-  if (hasApi()) window.widget.setHeight(BASE_HEIGHT + TOAST_HEIGHT);
+  toastOn = true;
+  syncHeight();
   els.toast.hidden = false;
   requestAnimationFrame(() => els.toast.classList.add('show'));
 
@@ -113,14 +192,17 @@ function hideToast() {
   els.toast.classList.remove('show');
   hideTimer = setTimeout(() => {
     els.toast.hidden = true;
-    if (hasApi()) window.widget.setHeight(BASE_HEIGHT);
+    toastOn = false;
+    syncHeight();
   }, 200);
 }
 
 // ---- 深淺色 ----
 function setTheme(theme) {
   els.body.dataset.theme = theme === 'light' ? 'light' : 'dark';
-  els.theme.setAttribute('aria-label', theme === 'light' ? '切換為深色模式' : '切換為淺色模式');
+  const label = theme === 'light' ? '切換為深色模式' : '切換為淺色模式';
+  els.theme.setAttribute('aria-label', label);
+  els.theme.dataset.tip = label;
 }
 
 els.theme.addEventListener('click', () => {
