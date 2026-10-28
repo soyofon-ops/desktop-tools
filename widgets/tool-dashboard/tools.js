@@ -2,7 +2,8 @@
 // 新增功能：在 TOOLS 加一筆 { id, name, icon, run }，超過 10 個會自動分頁
 //   name ：工具名稱，滑鼠移入按鈕時以提示顯示
 //   icon ：24×24 viewBox 的 SVG 內容（stroke 用 currentColor）
-//   run  ：async () => ({ ok: true|false, message: '通知文字' })
+//   run  ：async () => ({ ok: true|false, message: '通知文字', color?: '#RRGGBB' })
+//          有 color 時，通知左側顯示該顏色的色塊
 
 /**
  * URL 解碼：盡量把文字中的 %XX 解開。
@@ -127,6 +128,33 @@ function base64Decode(input) {
   return { text };
 }
 
+/** 把 '#rrggbb' 或 'rgb(r, g, b)' 統一成大寫 '#RRGGBB' */
+function normalizeHex(value) {
+  const s = String(value || '').trim();
+  let m = s.match(/^#?([0-9a-f]{6})$/i);
+  if (m) return '#' + m[1].toUpperCase();
+  m = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) return '#' + m.slice(1, 4).map((n) => Number(n).toString(16).padStart(2, '0')).join('').toUpperCase();
+  return null;
+}
+
+/**
+ * 螢幕取色，回傳 '#RRGGBB'，取消時為 null。
+ * macOS：用瀏覽器內建 EyeDropper（不需要螢幕錄製權限）。
+ * Windows 等：Electron 的 EyeDropper 取不到視窗外的顏色，改用框架的截圖取色（widget.pickColor）。
+ */
+async function pickScreenColor() {
+  if (window.widget.platform === 'darwin' && typeof EyeDropper === 'function') {
+    try {
+      const { sRGBHex } = await new EyeDropper().open();
+      return normalizeHex(sRGBHex);
+    } catch {
+      return null; // 使用者按 Esc 取消
+    }
+  }
+  return normalizeHex(await window.widget.pickColor());
+}
+
 window.TOOLS = [
   {
     id: 'url-decode',
@@ -184,6 +212,17 @@ window.TOOLS = [
       if (r.error === 'binary') return { ok: false, message: '解碼結果不是文字，剪貼簿不變' };
       await window.widget.copyText(r.text);
       return { ok: true, message: '已解碼並複製到剪貼簿' };
+    }
+  },
+  {
+    id: 'color-picker',
+    name: '顏色吸管',
+    icon: '<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>',
+    async run() {
+      const hex = await pickScreenColor();
+      if (!hex) return { ok: false, message: '已取消取色' };
+      await window.widget.copyText(hex);
+      return { ok: true, message: `已複製色碼 ${hex}`, color: hex };
     }
   }
 ];

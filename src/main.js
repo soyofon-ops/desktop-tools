@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const db = require('./database');
+const { pickColor } = require('./color-picker');
 
 // ---- 只允許一個實例 ----
 if (!app.requestSingleInstanceLock()) {
@@ -189,6 +190,9 @@ ipcMain.handle('widget:copy-text', (_e, text) => {
 
 // 讀取系統剪貼簿文字（理由同上）
 ipcMain.handle('widget:read-text', () => clipboard.readText());
+
+// 螢幕取色：回傳 '#RRGGBB'，取消時為 null（實作見 color-picker.js）
+ipcMain.handle('widget:pick-color', () => pickColor());
 
 ipcMain.on('widget:set-settings', (e, settings) => {
   const id = widgetIdFromSender(e.sender);

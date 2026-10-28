@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('widget', {
   copyText: (text) => ipcRenderer.invoke('widget:copy-text', text),
   /** 讀取系統剪貼簿的文字 */
   readText: () => ipcRenderer.invoke('widget:read-text'),
+  /** 進入螢幕取色模式，回傳 '#RRGGBB'，取消時為 null */
+  pickColor: () => ipcRenderer.invoke('widget:pick-color'),
+  /** 作業系統：'win32' | 'darwin' | 'linux' */
+  platform: process.platform,
 
   /**
    * 資料庫（分類與欄位在「設定 → 資料庫」建立）

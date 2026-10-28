@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>顏色吸管</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: crosshair; user-select: none; }
+  body { font-family: "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", -apple-system, "PingFang TC", system-ui, sans-serif; }
+
+  /* 凍結的螢幕畫面 */
+  #screen { position: fixed; inset: 0; width: 100vw; height: 100vh; image-rendering: pixelated; }
+
+  /* 上方操作提示 */
+  .hint {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    padding: 6px 14px; border-radius: 999px;
+    background: rgba(18, 21, 27, 0.9); border: 1px solid #2f3644; color: #e6e9ee;
+    font-size: 12px; white-space: nowrap; pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+  .hint b { color: #3dd6b5; font-weight: 600; }
+  .hint { transition: opacity 0.15s; }
+  .hint.away { opacity: 0; }
+
+  /* 放大鏡：13 × 13 像素放大 9 倍，中央格為取色點 */
+  .lens { position: fixed; left: 0; top: 0; pointer-events: none; display: none; }
+  .lens.on { display: block; }
+  .zoom {
+    display: block; width: 117px; height: 117px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 6px 16px rgba(0, 0, 0, 0.45);
+    image-rendering: pixelated; background: #000;
+  }
+  .center {
+    position: absolute; left: 54px; top: 54px; width: 11px; height: 11px;
+    border: 1px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+  }
+  .label {
+    position: absolute; left: 50%; top: 123px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px;
+    background: rgba(18, 21, 27, 0.92); border: 1px solid #2f3644; color: #e6e9ee;
+    font: 600 12px/1 "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; white-space: nowrap;
+  }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.5); }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+  <div class="hint" id="hint">點擊取色 · <b>Esc</b> 或右鍵取消</div>
+  <div class="lens" id="lens">
+    <canvas class="zoom" id="zoom" width="117" height="117"></canvas>
+    <div class="center"></div>
+    <div class="label"><span class="swatch" id="swatch"></span><span id="hex">#000000</span></div>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>

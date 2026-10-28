@@ -22,7 +22,8 @@ const els = {
   tip: document.getElementById('tip'),
   tipText: document.getElementById('tip-text'),
   toast: document.getElementById('toast'),
-  toastText: document.getElementById('toast-text')
+  toastText: document.getElementById('toast-text'),
+  toastSwatch: document.getElementById('toast-swatch')
 };
 
 const hasApi = () => !!window.widget;
@@ -169,11 +170,14 @@ async function runTool(tool, btn) {
 let toastTimer = null;
 let hideTimer = null;
 
-function showToast({ ok, message }) {
+function showToast({ ok, message, color }) {
   clearTimeout(toastTimer);
   clearTimeout(hideTimer);
   els.toastText.textContent = message;
   els.toast.classList.toggle('error', !ok);
+  // 有顏色時以色塊取代打勾圖示
+  els.toast.classList.toggle('has-color', !!(ok && color));
+  els.toastSwatch.style.background = ok && color ? color : '';
   els.toast.setAttribute('role', ok ? 'status' : 'alert');
 
   // 通知與提示在同一個位置，通知優先
