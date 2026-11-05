@@ -1,22 +1,22 @@
 // 工具儀表盤：倒梯形面板，每頁 5 × 2 個圓形圖示按鈕，超過 10 個自動分頁
 const PER_PAGE = 10;
-const PAGE_STEP = 204;      // 一頁 188（5 × 28 + 4 × 12）+ 頁間距 16
-const BASE_HEIGHT = 196;    // widget.json 的 height（角色面板 64 + 間距 6 + 梯形 104 + 上下留白）
-const TOAST_HEIGHT = 38;    // 6px 間距 + 32px 通知
-const TIP_HEIGHT = 20;      // 工具提示需要多出的高度（6px 間距 + 24px 提示 + 陰影，扣掉原本留白）
-const TIP_DELAY = 350;      // 滑鼠停留多久才顯示提示
-const TIP_MIN_X = 22;       // 提示的左右界線：面板下方斜邊在這個高度的位置
+const PAGE_STEP = 204; // 一頁 188（5 × 28 + 4 × 12）+ 頁間距 16
+const BASE_HEIGHT = 196; // widget.json 的 height（角色面板 64 + 間距 6 + 梯形 104 + 上下留白）
+const TOAST_HEIGHT = 38; // 6px 間距 + 32px 通知
+const TIP_HEIGHT = 20; // 工具提示需要多出的高度（6px 間距 + 24px 提示 + 陰影，扣掉原本留白）
+const TIP_DELAY = 350; // 滑鼠停留多久才顯示提示
+const TIP_MIN_X = 22; // 提示的左右界線：面板下方斜邊在這個高度的位置
 const TIP_MAX_X = 258;
-const TIP_TOP_DASH = 180;   // 梯形下方的提示位置
-const TIP_TOP_AGENTS = 70;  // 角色面板下方的提示位置（蓋在梯形上，不需要長高）
+const TIP_TOP_DASH = 180; // 梯形下方的提示位置
+const TIP_TOP_AGENTS = 70; // 角色面板下方的提示位置（蓋在梯形上，不需要長高）
 const TOAST_MS = 2500;
-const CELL = 28;            // 按鈕直徑
-const CELL_STEP = 40;       // 按鈕直徑 + 間距
-const VIEW_PAD = 8;         // 按鈕區外擴的 padding（見 .viewport）
-const DRAG_THRESHOLD = 4;   // 移動超過幾 px 才算拖曳，否則視為點擊
-const ARROW_DELAY = 350;    // 拖到箭頭上停留多久換頁
-const ARROW_REPEAT = 800;   // 一直停在箭頭上時，每隔多久再換一頁
-const SLIDE_MS = 360;       // 換頁動畫時間
+const CELL = 28; // 按鈕直徑
+const CELL_STEP = 40; // 按鈕直徑 + 間距
+const VIEW_PAD = 8; // 按鈕區外擴的 padding（見 .viewport）
+const DRAG_THRESHOLD = 4; // 移動超過幾 px 才算拖曳，否則視為點擊
+const ARROW_DELAY = 350; // 拖到箭頭上停留多久換頁
+const ARROW_REPEAT = 800; // 一直停在箭頭上時，每隔多久再換一頁
+const SLIDE_MS = 360; // 換頁動畫時間
 
 const tools = Array.isArray(window.TOOLS) ? window.TOOLS : [];
 const pageCount = Math.max(1, Math.ceil(tools.length / PER_PAGE));
@@ -38,7 +38,7 @@ const els = {
   tipText: document.getElementById('tip-text'),
   toast: document.getElementById('toast'),
   toastText: document.getElementById('toast-text'),
-  toastSwatch: document.getElementById('toast-swatch')
+  toastSwatch: document.getElementById('toast-swatch'),
 };
 
 const hasApi = () => !!window.widget;
@@ -116,7 +116,13 @@ function flip(before) {
     b.getBoundingClientRect(); // 強制套用起始位置
     b.style.transition = 'transform 0.18s ease';
     b.style.transform = '';
-    b.addEventListener('transitionend', () => { b.style.transition = ''; }, { once: true });
+    b.addEventListener(
+      'transitionend',
+      () => {
+        b.style.transition = '';
+      },
+      { once: true },
+    );
   }
 }
 
@@ -161,13 +167,15 @@ function goTo(p) {
   els.next.hidden = page === pageCount - 1;
   [...els.dots.children].forEach((d, i) => d.classList.toggle('on', i === page));
   // 被滑出畫面的按鈕不要被 Tab 選到
-  [...els.track.children].forEach((pg, i) => { pg.inert = i !== page; });
+  [...els.track.children].forEach((pg, i) => {
+    pg.inert = i !== page;
+  });
 }
 
 // ---- 視窗高度：通知優先，其次是工具提示 ----
 let toastOn = false;
 let tipOn = false;
-let tipExtra = 0;           // 目前的提示需要多出的視窗高度
+let tipExtra = 0; // 目前的提示需要多出的視窗高度
 
 function syncHeight() {
   if (!hasApi()) return;
@@ -177,13 +185,21 @@ function syncHeight() {
 // ---- 工具提示 ----
 let tipTimer = null;
 let tipHideTimer = null;
-let tipHiddenAt = 0;        // 上次收起提示的時間，用來判斷是否從一個按鈕直接移到另一個
-let hovered = null;         // 目前滑鼠所在的按鈕（通知收起後要補顯示它的提示）
+let tipHiddenAt = 0; // 上次收起提示的時間，用來判斷是否從一個按鈕直接移到另一個
+let hovered = null; // 目前滑鼠所在的按鈕（通知收起後要補顯示它的提示）
 
 function bindTip(el) {
-  el.addEventListener('pointerenter', () => { hovered = el; scheduleTip(el); });
-  el.addEventListener('pointerleave', () => { if (hovered === el) hovered = null; hideTip(); });
-  el.addEventListener('focus', () => { if (el.matches(':focus-visible')) showTip(el); });
+  el.addEventListener('pointerenter', () => {
+    hovered = el;
+    scheduleTip(el);
+  });
+  el.addEventListener('pointerleave', () => {
+    if (hovered === el) hovered = null;
+    hideTip();
+  });
+  el.addEventListener('focus', () => {
+    if (el.matches(':focus-visible')) showTip(el);
+  });
   el.addEventListener('blur', hideTip);
   el.addEventListener('click', hideTip);
 }
@@ -214,7 +230,10 @@ function showTip(el) {
   els.tip.style.left = `${left}px`;
   els.tip.style.top = `${inAgents ? TIP_TOP_AGENTS : TIP_TOP_DASH}px`;
   const extra = inAgents ? 0 : TIP_HEIGHT;
-  if (tipOn && extra !== tipExtra) { tipExtra = extra; syncHeight(); }
+  if (tipOn && extra !== tipExtra) {
+    tipExtra = extra;
+    syncHeight();
+  }
   tipExtra = extra;
   // 箭頭盡量指向按鈕，但不超出提示本身的圓角範圍
   els.tip.style.setProperty('--caret', `${Math.max(10, Math.min(w - 10, cx - left))}px`);
@@ -268,7 +287,7 @@ els.track.addEventListener('pointerdown', (e) => {
     index: order.findIndex((t) => t.id === btn.dataset.id),
     origOrder: order.slice(),
     origPage: page,
-    ghost: null
+    ghost: null,
   };
 });
 
@@ -286,8 +305,12 @@ window.addEventListener('pointerup', (e) => {
   if (drag.started) endDrag(true);
   else drag = null; // 沒有移動：一般點擊
 });
-window.addEventListener('pointercancel', () => { if (drag) endDrag(false); });
-window.addEventListener('blur', () => { if (drag && drag.started) endDrag(false); });
+window.addEventListener('pointercancel', () => {
+  if (drag) endDrag(false);
+});
+window.addEventListener('blur', () => {
+  if (drag && drag.started) endDrag(false);
+});
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && drag && drag.started) endDrag(false);
 });
@@ -296,7 +319,11 @@ function startDrag() {
   drag.started = true;
   hideTip();
   // 指標移出按鈕或視窗也持續收到事件
-  try { els.dash.setPointerCapture(drag.pointerId); } catch { /* 指標已放開 */ }
+  try {
+    els.dash.setPointerCapture(drag.pointerId);
+  } catch {
+    /* 指標已放開 */
+  }
   document.documentElement.classList.add('tool-dragging');
 
   const src = els.track.querySelector(`.tool[data-id="${drag.id}"]`);
@@ -343,7 +370,10 @@ function hitIndex(x, y) {
 }
 
 function overArrow(x, y) {
-  for (const [el, dir] of [[els.prev, -1], [els.next, 1]]) {
+  for (const [el, dir] of [
+    [els.prev, -1],
+    [els.next, 1],
+  ]) {
     if (el.hidden) continue;
     const r = el.getBoundingClientRect();
     if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 6 && y <= r.bottom + 6) return dir;
@@ -362,7 +392,9 @@ function setArrowHover(dir) {
     if (target < 0 || target >= pageCount) return;
     goTo(target);
     sliding = true;
-    setTimeout(() => { sliding = false; }, SLIDE_MS);
+    setTimeout(() => {
+      sliding = false;
+    }, SLIDE_MS);
     // 換到第一頁／最後一頁時箭頭會隱藏
     if ((arrowDir === -1 && els.prev.hidden) || (arrowDir === 1 && els.next.hidden)) {
       setArrowHover(0);
@@ -376,7 +408,11 @@ function setArrowHover(dir) {
 function endDrag(commit) {
   const d = drag;
   setArrowHover(0);
-  try { els.dash.releasePointerCapture(d.pointerId); } catch { /* 已釋放 */ }
+  try {
+    els.dash.releasePointerCapture(d.pointerId);
+  } catch {
+    /* 已釋放 */
+  }
   document.documentElement.classList.remove('tool-dragging');
 
   // 放開後按鈕從鬼影的位置滑進格子
@@ -397,7 +433,9 @@ function endDrag(commit) {
   }
   // 放開時瀏覽器會補送一次 click，吃掉它
   suppressClick = true;
-  setTimeout(() => { suppressClick = false; }, 0);
+  setTimeout(() => {
+    suppressClick = false;
+  }, 0);
 }
 
 // ---- 鍵盤調整順序：Alt + ←→ 前後移一格，Alt + ↑↓ 移一列 ----
@@ -500,7 +538,7 @@ let agentDrag = null;
 let agentSuppressClick = false;
 
 // ---- 角色需要注意的提示（只有動畫，沒有聲音）----
-const ATTN_ONCE_MS = 3200;  // 聊天視窗開著時的提示長度：動畫 1.6s × 2 次
+const ATTN_ONCE_MS = 3200; // 聊天視窗開著時的提示長度：動畫 1.6s × 2 次
 const ATTN_LABEL = { done: '回覆完成', error: '回覆失敗' };
 /** @type {Map<string, { kind: 'waiting'|'done'|'error', since: number, sticky: boolean, timer: any }>} */
 const agentAttention = new Map();
@@ -538,8 +576,9 @@ function syncAttention() {
     if (prev === undefined || prev === r.state) continue;
     const cur = agentAttention.get(r.name);
     if (r.state === 'waiting') setAttention(r.name, 'waiting');
-    else if (prev === 'waiting') { if (cur && cur.kind === 'waiting') clearAttention(r.name); }
-    else if (r.state === 'running') clearAttention(r.name); // 開始新一輪回覆
+    else if (prev === 'waiting') {
+      if (cur && cur.kind === 'waiting') clearAttention(r.name);
+    } else if (r.state === 'running') clearAttention(r.name); // 開始新一輪回覆
   }
 }
 
@@ -595,17 +634,24 @@ function renderAgents() {
   if (agentState.roles.length < (agentState.max || 4)) {
     const add = document.createElement('button');
     add.className = 'agent-add';
-    add.dataset.tip = '新增 Claude 角色';
-    add.setAttribute('aria-label', '新增 Claude 角色');
-    add.innerHTML = '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-    add.addEventListener('click', () => { hideTip(); agentsApi.call('openEditor', null); });
+    add.dataset.tip = '新增角色';
+    add.setAttribute('aria-label', '新增角色');
+    add.innerHTML =
+      '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+    add.addEventListener('click', () => {
+      hideTip();
+      agentsApi.call('openEditor', null);
+    });
     bindTip(add);
     panel.appendChild(add);
   }
   // 提示顯示中的按鈕重畫後補回提示內容（例如狀態從「回覆中」變成閒置）
   if (hovered && !hovered.isConnected && hovered.dataset.name) {
     const again = panel.querySelector(`.agent[data-name="${CSS.escape(hovered.dataset.name)}"]`);
-    if (again) { hovered = again; if (tipOn) showTip(again); }
+    if (again) {
+      hovered = again;
+      if (tipOn) showTip(again);
+    }
   }
 }
 
@@ -614,7 +660,15 @@ els.agents.addEventListener('pointerdown', (e) => {
   const btn = e.target.closest('.agent');
   if (!btn || e.button !== 0 || !agentsApi) return;
   const r = btn.getBoundingClientRect();
-  agentDrag = { btn, name: btn.dataset.name, pointerId: e.pointerId, sx: e.clientX, offX: e.clientX - r.left, started: false, ghost: null };
+  agentDrag = {
+    btn,
+    name: btn.dataset.name,
+    pointerId: e.pointerId,
+    sx: e.clientX,
+    offX: e.clientX - r.left,
+    started: false,
+    ghost: null,
+  };
 });
 
 window.addEventListener('pointermove', (e) => {
@@ -624,7 +678,11 @@ window.addEventListener('pointermove', (e) => {
     if (Math.abs(e.clientX - d.sx) < DRAG_THRESHOLD) return;
     d.started = true;
     hideTip();
-    try { els.agents.setPointerCapture(d.pointerId); } catch { /* 已放開 */ }
+    try {
+      els.agents.setPointerCapture(d.pointerId);
+    } catch {
+      /* 已放開 */
+    }
     document.documentElement.classList.add('tool-dragging');
     d.ghost = d.btn.cloneNode(true);
     d.ghost.classList.add('agent-ghost');
@@ -668,13 +726,19 @@ function endAgentDrag(commit) {
   const d = agentDrag;
   agentDrag = null;
   if (!d || !d.started) return;
-  try { els.agents.releasePointerCapture(d.pointerId); } catch { /* 已釋放 */ }
+  try {
+    els.agents.releasePointerCapture(d.pointerId);
+  } catch {
+    /* 已釋放 */
+  }
   document.documentElement.classList.remove('tool-dragging');
   d.ghost.remove();
   d.btn.classList.remove('dragging');
   const names = [...els.agents.querySelectorAll('.agent')].map((b) => b.dataset.name);
   agentSuppressClick = true;
-  setTimeout(() => { agentSuppressClick = false; }, 0);
+  setTimeout(() => {
+    agentSuppressClick = false;
+  }, 0);
   if (commit && names.join() !== agentState.roles.map((r) => r.name).join()) {
     const byName = new Map(agentState.roles.map((r) => [r.name, r]));
     agentState.roles = names.map((n) => byName.get(n)).filter(Boolean);
@@ -690,7 +754,9 @@ window.addEventListener('pointerup', (e) => {
   }
 });
 window.addEventListener('pointercancel', () => endAgentDrag(false));
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && agentDrag && agentDrag.started) endAgentDrag(false); });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && agentDrag && agentDrag.started) endAgentDrag(false);
+});
 
 // 鍵盤調整順序：Alt + ←→
 els.agents.addEventListener('keydown', (e) => {
@@ -710,8 +776,15 @@ els.agents.addEventListener('keydown', (e) => {
 });
 
 async function initAgents() {
-  if (!agentsApi) { els.agents.hidden = true; return; }
-  agentsApi.onChanged((s) => { agentState = s; syncAttention(); renderAgents(); });
+  if (!agentsApi) {
+    els.agents.hidden = true;
+    return;
+  }
+  agentsApi.onChanged((s) => {
+    agentState = s;
+    syncAttention();
+    renderAgents();
+  });
   agentsApi.onEvent(onAgentEvent);
   try {
     agentState = await agentsApi.call('state');
@@ -736,5 +809,8 @@ setTheme('dark');
       applySavedOrder(settings.order);
       render();
     }
-  } catch { /* 在一般瀏覽器開啟時沒有 widget API */ }
+  } catch {
+    /* 在一般瀏覽器開啟時沒有 widget API */
+  }
 })();
+
