@@ -459,7 +459,7 @@ function setupAgents(deps) {
 
     openEditor(name = null) {
       if (!name && panel.roles.length >= MAX_ROLES) return false;
-      openPopup({ page: 'popups/agent-editor.html', width: 440, height: 660, data: { name, theme: getTheme() } });
+      openPopup({ page: 'popups/agent-editor.html', width: 440, height: 720, data: { name, theme: getTheme() } });
       return true;
     }
   };

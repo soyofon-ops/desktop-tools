@@ -17,6 +17,14 @@ const f = {
 
 function hex() { return (window.AGENT_COLORS[color] || window.AGENT_COLORS.blue).hex; }
 
+/** 把子代理的 name 轉成烤肉串命名的代號；轉不出英數字時回傳空字串，由使用者自行填寫 */
+function toKebabCase(value) {
+  const text = String(value).trim();
+  // 只有沒有分隔符號時才拆大小寫（codeReviewer），避免切開 LinkedIn、macOS 這類品牌名
+  const words = /[^A-Za-z0-9]/.test(text) ? text : text.replace(/([a-z0-9])([A-Z])/g, '$1-$2');
+  return words.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 64).replace(/-+$/, '');
+}
+
 function renderLook() {
   const c = hex();
   $('preview').style.setProperty('--c', c);
@@ -77,7 +85,8 @@ function fill(role) {
   color = role ? role.color : COLOR_KEYS[Math.floor(Math.random() * COLOR_KEYS.length)];
   mascot = role ? role.mascot : MASCOT_KEYS[Math.floor(Math.random() * MASCOT_KEYS.length)];
   f.displayName.value = role ? role.displayName : '';
-  f.name.value = role ? role.name : '';
+  // 已合法的代號維持原樣，不合法的（例如從現有子代理加入）才轉換；editing 保留原名，儲存時才會改名
+  f.name.value = !role ? '' : NAME_RE.test(role.name) ? role.name : toKebabCase(role.name);
   f.description.value = role ? role.description : '';
   f.prompt.value = role ? role.prompt : '';
   setModelValue(role ? role.model : '');
