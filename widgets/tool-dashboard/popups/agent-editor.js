@@ -5,6 +5,7 @@ const COLOR_KEYS = Object.keys(window.AGENT_COLORS);
 const MASCOT_KEYS = Object.keys(window.MASCOTS);
 
 let editing = null;     // 原本的代號（新增時為 null）
+let importedFile = '';  // 從現有子代理加入的角色：實際檔案路徑（保留原檔名與 name）
 let color = 'blue';
 let mascot = 'blob';
 let extraTools = [];
@@ -61,6 +62,11 @@ document.querySelectorAll('.tchip').forEach((c) => {
 });
 
 function updateFile() {
+  if (importedFile) {
+    f.fileText.textContent = importedFile;
+    f.name.classList.remove('invalid');
+    return;
+  }
   const n = f.name.value.trim();
   f.fileText.textContent = `${agentsDir || '~/.claude/agents'}${agentsDir.includes('\\') ? '\\' : '/'}${n || '代號'}.md`;
   f.name.classList.toggle('invalid', !!n && !NAME_RE.test(n));
@@ -79,14 +85,21 @@ function setModelValue(v) {
 
 function fill(role) {
   editing = role ? role.name : null;
+  const imported = !!(role && role.imported);
+  importedFile = imported ? role.file : '';
   $('heading').textContent = role ? '編輯角色' : '新增角色';
   document.title = $('heading').textContent;
   $('remove').hidden = !role;
   color = role ? role.color : COLOR_KEYS[Math.floor(Math.random() * COLOR_KEYS.length)];
   mascot = role ? role.mascot : MASCOT_KEYS[Math.floor(Math.random() * MASCOT_KEYS.length)];
   f.displayName.value = role ? role.displayName : '';
-  // 已合法的代號維持原樣，不合法的（例如從現有子代理加入）才轉換；editing 保留原名，儲存時才會改名
-  f.name.value = !role ? '' : NAME_RE.test(role.name) ? role.name : toKebabCase(role.name);
+  // 從現有子代理加入的角色保留原名；其他已合法的代號維持原樣，舊資料不合法時才轉換
+  f.name.value = !role ? '' : imported || NAME_RE.test(role.name) ? role.name : toKebabCase(role.name);
+  f.name.readOnly = imported;
+  f.name.title = imported ? '從現有子代理加入的角色會保留原檔名與代號' : '';
+  $('del-text').textContent = imported
+    ? '移除這個角色？子代理檔案會保留，對話紀錄會刪除。'
+    : '移除這個角色？子代理檔案會移到資源回收筒，對話紀錄會刪除。';
   f.description.value = role ? role.description : '';
   f.prompt.value = role ? role.prompt : '';
   setModelValue(role ? role.model : '');
@@ -102,7 +115,7 @@ function fill(role) {
 function validate() {
   const n = f.name.value.trim();
   if (!f.displayName.value.trim()) return [f.displayName, '請填寫顯示名稱'];
-  if (!NAME_RE.test(n)) return [f.name, '代號只能用英文小寫、數字和 -，並以字母開頭'];
+  if (!importedFile && !NAME_RE.test(n)) return [f.name, '代號只能用英文小寫、數字和 -，並以字母開頭'];
   if (!f.description.value.trim()) return [f.description, '請填寫「何時使用」'];
   if (!f.prompt.value.trim()) return [f.prompt, '請填寫角色說明'];
   return null;

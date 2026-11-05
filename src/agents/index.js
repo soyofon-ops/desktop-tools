@@ -53,6 +53,8 @@ function setupAgents(deps) {
   const agentsDir = files.agentsDir(homeDir);
   const panelFile = path.join(userDataDir, 'agents.json');
   const chatsDir = path.join(userDataDir, 'agent-chats');
+  // 保留原名的角色可能含 / 等不能當檔名的字元，編碼後才不會寫到其他路徑
+  const chatFile = (name) => path.join(chatsDir, `${String(name).replace(/[\\/:*?"<>|%]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)}.json`);
   const keys = createKeyStore({ dir: userDataDir, safeStorage, fetch });
 
   // ---- 面板資料 ----
@@ -95,7 +97,7 @@ function setupAgents(deps) {
   function historyOf(name) {
     if (!histories.has(name)) {
       let h = { items: [], cost: null, model: null };
-      try { h = { ...h, ...JSON.parse(fs.readFileSync(path.join(chatsDir, `${name}.json`), 'utf8')) }; } catch { /* 沒有紀錄 */ }
+      try { h = { ...h, ...JSON.parse(fs.readFileSync(chatFile(name), 'utf8')) }; } catch { /* 沒有紀錄 */ }
       h.items = h.items.filter((i) => i.role !== 'permission');
       histories.set(name, h);
     }
@@ -108,7 +110,7 @@ function setupAgents(deps) {
     try {
       fs.mkdirSync(chatsDir, { recursive: true });
       const items = h.items.filter((i) => i.role !== 'permission' && !i.streaming).slice(-MAX_HISTORY);
-      fs.writeFileSync(path.join(chatsDir, `${name}.json`), JSON.stringify({ items, cost: h.cost, model: h.model }), 'utf8');
+      fs.writeFileSync(chatFile(name), JSON.stringify({ items, cost: h.cost, model: h.model }), 'utf8');
     } catch (err) {
       console.error('儲存對話紀錄失敗', err);
     }
@@ -212,6 +214,7 @@ function setupAgents(deps) {
       mascot: MASCOTS.includes(r.mascot) ? r.mascot : hashPick(r.name, MASCOTS),
       color: d.color || hashPick(r.name, files.COLORS),
       cwd: r.cwd || '',
+      imported: !!r.imported,
       model: d.model || null,
       state: s ? s.state : 'idle',
       open: chatOpenFor === r.name
@@ -290,9 +293,11 @@ function setupAgents(deps) {
       const isNew = !oldName;
       if (isNew && panel.roles.length >= MAX_ROLES) throw new Error(`最多 ${MAX_ROLES} 個角色`);
       const prev = oldName ? defs.get(oldName) : null;
+      // 從現有子代理加入的角色一律保留原檔名與 name，不採用傳入的代號
+      const imported = !!(oldName && panel.roles.find((r) => r.name === oldName)?.imported);
       const tools = groupsToTools(Array.isArray(p.toolGroups) ? p.toolGroups : [], Array.isArray(p.extraTools) ? p.extraTools : []);
       const def = {
-        name: String(p.name || '').trim(),
+        name: imported ? oldName : String(p.name || '').trim(),
         description: String(p.description || '').trim(),
         prompt: String(p.prompt || '').trim(),
         tools,
@@ -300,12 +305,13 @@ function setupAgents(deps) {
         color: files.COLORS.includes(p.color) ? p.color : null,
         extra: prev ? prev.extra : []
       };
-      const file = await files.save(agentsDir, def, { oldName, trash });
+      const file = await files.save(agentsDir, def, { oldName, trash, keepName: imported });
       const meta = {
         name: def.name,
         displayName: String(p.displayName || '').trim() || def.name,
         mascot: MASCOTS.includes(p.mascot) ? p.mascot : hashPick(def.name, MASCOTS),
-        cwd: String(p.cwd || '').trim()
+        cwd: String(p.cwd || '').trim(),
+        ...(imported ? { imported: true } : {})
       };
       if (isNew) {
         panel.roles.push(meta);
@@ -317,7 +323,7 @@ function setupAgents(deps) {
           delete panel.sessions[oldName];
           const h = histories.get(oldName);
           if (h) { histories.set(def.name, h); histories.delete(oldName); }
-          try { fs.renameSync(path.join(chatsDir, `${oldName}.json`), path.join(chatsDir, `${def.name}.json`)); } catch { /* 沒有紀錄 */ }
+          try { fs.renameSync(chatFile(oldName), chatFile(def.name)); } catch { /* 沒有紀錄 */ }
           if (chatOpenFor === oldName) chatOpenFor = def.name;
         }
         closeSession(oldName); // 下次傳訊息用新設定
@@ -332,7 +338,7 @@ function setupAgents(deps) {
       if (panel.roles.length >= MAX_ROLES) throw new Error(`最多 ${MAX_ROLES} 個角色`);
       if (!defs.has(name)) throw new Error('找不到這個子代理');
       if (!panel.roles.some((r) => r.name === name)) {
-        panel.roles.push({ name, displayName: name, mascot: hashPick(name, MASCOTS), cwd: '' });
+        panel.roles.push({ name, displayName: name, mascot: hashPick(name, MASCOTS), cwd: '', imported: true });
         savePanel();
         broadcastState();
       }
@@ -341,11 +347,13 @@ function setupAgents(deps) {
 
     async removeRole(name) {
       closeSession(name);
-      await files.remove(agentsDir, name, { trash });
+      // 從現有子代理加入的角色只從面板移除，檔案留在子代理資料夾
+      const imported = !!panel.roles.find((r) => r.name === name)?.imported;
+      if (!imported) await files.remove(agentsDir, name, { trash });
       panel.roles = panel.roles.filter((r) => r.name !== name);
       delete panel.sessions[name];
       histories.delete(name);
-      try { fs.unlinkSync(path.join(chatsDir, `${name}.json`)); } catch { /* 沒有紀錄 */ }
+      try { fs.unlinkSync(chatFile(name)); } catch { /* 沒有紀錄 */ }
       savePanel();
       reloadDefs();
       broadcastState();

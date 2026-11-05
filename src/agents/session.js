@@ -109,7 +109,8 @@ class AgentSession {
     const query = await this.loadQuery();
     // 以另一個名稱傳入同一份定義：~/.claude/agents 有同名檔案時，Claude Code 會忽略主執行緒的 agent 設定
     // （Claude Code 2.1.318 實測），換個名稱就能確定套用角色說明、工具與模型
-    const agentKey = `dashboard-role-${this.name}`;
+    // 從現有子代理加入的角色會保留原名，可能含空白或符號，這裡只取安全字元；合法代號不受影響
+    const agentKey = `dashboard-role-${this.name.replace(/[^A-Za-z0-9-]+/g, '-')}`;
     const options = {
       agent: agentKey,
       agents: { [agentKey]: this.definition },

@@ -125,7 +125,9 @@ function yamlString(s) {
 
 /** 產生子代理檔案內容 */
 function formatAgent(def) {
-  const lines = ['---', `name: ${def.name}`, `description: ${yamlString(def.description)}`];
+  // 合法代號維持不加引號；保留原名的子代理可能含特殊字元，需要時加引號
+  const name = NAME_RE.test(def.name) ? def.name : yamlString(def.name);
+  const lines = ['---', `name: ${name}`, `description: ${yamlString(def.description)}`];
   const tools = toList(def.tools);
   if (tools && tools.length) lines.push(`tools: ${tools.join(', ')}`);
   if (def.model && def.model !== 'inherit-default') lines.push(`model: ${def.model}`);
@@ -135,8 +137,8 @@ function formatAgent(def) {
   return lines.join('\n');
 }
 
-function validate(def) {
-  if (!NAME_RE.test(def.name || '')) return '代號只能用英文小寫、數字和 -，並以字母開頭';
+function validate(def, { keepName = false } = {}) {
+  if (keepName ? !String(def.name || '').trim() : !NAME_RE.test(def.name || '')) return '代號只能用英文小寫、數字和 -，並以字母開頭';
   if (!String(def.description || '').trim()) return '請填寫「何時使用」';
   if (!String(def.prompt || '').trim()) return '請填寫角色說明';
   return null;
@@ -163,14 +165,16 @@ function fileOf(dir, name) {
 
 /**
  * 儲存子代理。oldName 不同時代表改名：寫新檔後把舊檔交給 trash 處理。
+ * keepName：寫回既有檔案，保留原檔名與 name（name 可不符合代號格式）。
  * @returns {string} 檔案路徑
  */
-async function save(dir, def, { oldName = null, trash } = {}) {
-  const err = validate(def);
+async function save(dir, def, { oldName = null, trash, keepName = false } = {}) {
+  const err = validate(def, { keepName });
   if (err) throw new Error(err);
   fs.mkdirSync(dir, { recursive: true });
   const all = readAll(dir);
   const existing = all.find((a) => a.name === (oldName || def.name));
+  if (keepName && !existing) throw new Error('找不到這個子代理');
   if ((!oldName || oldName !== def.name) && all.some((a) => a.name === def.name)) {
     throw new Error(`已經有名為 ${def.name} 的子代理`);
   }

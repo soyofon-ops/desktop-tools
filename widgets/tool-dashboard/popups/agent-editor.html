@@ -31,6 +31,7 @@
   }
   input:focus, textarea:focus, select:focus { border-color: var(--accent); }
   input.invalid { border-color: var(--warn); }
+  input[readonly] { color: var(--muted); cursor: default; }
   textarea { height: auto; padding: 7px 9px; resize: none; line-height: 1.5; }
   /* 角色說明填滿剩餘高度，吸收加入列、錯誤訊息與移除確認列造成的差距，整個表單不必捲動 */
   .field-grow { flex: 1 1 0; }
@@ -144,7 +145,7 @@
     </div>
 
     <div class="confirm-del" id="confirm-del" hidden>
-      <span>移除這個角色？子代理檔案會移到資源回收筒，對話紀錄會刪除。</span>
+      <span id="del-text">移除這個角色？子代理檔案會移到資源回收筒，對話紀錄會刪除。</span>
       <button class="btn" id="del-cancel">取消</button>
       <button class="btn" id="del-ok" style="border-color: var(--warn); color: var(--warn)">移除</button>
     </div>

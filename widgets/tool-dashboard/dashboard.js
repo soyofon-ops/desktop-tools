@@ -604,7 +604,7 @@ function renderAgents() {
   }
   // 提示顯示中的按鈕重畫後補回提示內容（例如狀態從「回覆中」變成閒置）
   if (hovered && !hovered.isConnected && hovered.dataset.name) {
-    const again = panel.querySelector(`.agent[data-name="${hovered.dataset.name}"]`);
+    const again = panel.querySelector(`.agent[data-name="${CSS.escape(hovered.dataset.name)}"]`);
     if (again) { hovered = again; if (tipOn) showTip(again); }
   }
 }
@@ -705,7 +705,7 @@ els.agents.addEventListener('keydown', (e) => {
   const byName = new Map(agentState.roles.map((r) => [r.name, r]));
   agentState.roles = names.map((n) => byName.get(n));
   renderAgents();
-  els.agents.querySelector(`.agent[data-name="${btn.dataset.name}"]`).focus();
+  els.agents.querySelector(`.agent[data-name="${CSS.escape(btn.dataset.name)}"]`).focus();
   agentsApi.call('reorder', names);
 });
 
