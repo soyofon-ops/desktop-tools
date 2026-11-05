@@ -499,6 +499,66 @@ let agentState = { roles: [], max: 4 };
 let agentDrag = null;
 let agentSuppressClick = false;
 
+// ---- 角色需要注意的提示（只有動畫，沒有聲音）----
+const ATTN_ONCE_MS = 3200;  // 聊天視窗開著時的提示長度：動畫 1.6s × 2 次
+const ATTN_LABEL = { done: '回覆完成', error: '回覆失敗' };
+/** @type {Map<string, { kind: 'waiting'|'done'|'error', since: number, sticky: boolean, timer: any }>} */
+const agentAttention = new Map();
+const agentPrevState = new Map();
+
+function clearAttention(name) {
+  const cur = agentAttention.get(name);
+  if (cur) clearTimeout(cur.timer);
+  agentAttention.delete(name);
+}
+
+/** 聊天視窗沒開：持續提示到點開為止；已開著：只提示一下 */
+function setAttention(name, kind) {
+  const role = agentState.roles.find((r) => r.name === name);
+  if (!role) return;
+  clearAttention(name);
+  const entry = { kind, since: Date.now(), sticky: !role.open, timer: null };
+  if (!entry.sticky) {
+    entry.timer = setTimeout(() => {
+      agentAttention.delete(name);
+      renderAgents();
+    }, ATTN_ONCE_MS);
+  }
+  agentAttention.set(name, entry);
+}
+
+/** 依角色狀態的變化更新提示 */
+function syncAttention() {
+  const names = new Set(agentState.roles.map((r) => r.name));
+  for (const name of agentAttention.keys()) if (!names.has(name)) clearAttention(name);
+
+  for (const r of agentState.roles) {
+    const prev = agentPrevState.get(r.name);
+    agentPrevState.set(r.name, r.state);
+    if (prev === undefined || prev === r.state) continue;
+    const cur = agentAttention.get(r.name);
+    if (r.state === 'waiting') setAttention(r.name, 'waiting');
+    else if (prev === 'waiting') { if (cur && cur.kind === 'waiting') clearAttention(r.name); }
+    else if (r.state === 'running') clearAttention(r.name); // 開始新一輪回覆
+  }
+}
+
+/** 回覆結束的事件：不看 idle 狀態，因為手動關閉程序時也會變回 idle */
+function onAgentEvent({ name, event }) {
+  const failed = event.type === 'error' || (event.type === 'result' && event.isError);
+  if (failed) {
+    // API 錯誤會先後收到 error 與 result，第二次不要重播動畫
+    const cur = agentAttention.get(name);
+    if (!cur || cur.kind !== 'error') setAttention(name, 'error');
+  } else if (event.type === 'result') {
+    const cur = agentAttention.get(name);
+    if (!cur || cur.kind !== 'error') setAttention(name, 'done');
+  } else {
+    return;
+  }
+  renderAgents();
+}
+
 function renderAgents() {
   const panel = els.agents;
   if (agentDrag && agentDrag.started) return; // 拖曳中不重畫，放開後再更新
@@ -510,13 +570,23 @@ function renderAgents() {
     btn.className = `agent${r.state === 'running' ? ' running' : ''}${r.state === 'waiting' ? ' waiting' : ''}${r.open ? ' open' : ''}`;
     btn.dataset.name = r.name;
     btn.style.setProperty('--c', color);
-    const label = AGENT_STATE_LABEL[r.state] ? `${r.displayName} · ${AGENT_STATE_LABEL[r.state]}` : r.displayName;
+    const attn = agentAttention.get(r.name);
+    if (attn) {
+      btn.classList.add('attn');
+      btn.classList.toggle('attn-error', attn.kind === 'error');
+      btn.classList.toggle('attn-sticky', attn.sticky);
+      // 按鈕每次都會重建，用負的延遲接續動畫進度，避免重播
+      btn.style.setProperty('--attn-delay', `-${Date.now() - attn.since}ms`);
+    }
+    const stateLabel = AGENT_STATE_LABEL[r.state] || (attn && attn.sticky && ATTN_LABEL[attn.kind]);
+    const label = stateLabel ? `${r.displayName} · ${stateLabel}` : r.displayName;
     btn.dataset.tip = label;
     btn.setAttribute('aria-label', `${label}（Alt + ←→ 調整順序）`);
     btn.innerHTML = `${mascot.svg(color, 32)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
     btn.addEventListener('click', () => {
       if (agentSuppressClick) return;
       hideTip();
+      clearAttention(r.name);
       agentsApi.call('openChat', r.name);
     });
     bindTip(btn);
@@ -641,12 +711,14 @@ els.agents.addEventListener('keydown', (e) => {
 
 async function initAgents() {
   if (!agentsApi) { els.agents.hidden = true; return; }
-  agentsApi.onChanged((s) => { agentState = s; renderAgents(); });
+  agentsApi.onChanged((s) => { agentState = s; syncAttention(); renderAgents(); });
+  agentsApi.onEvent(onAgentEvent);
   try {
     agentState = await agentsApi.call('state');
   } catch (err) {
     console.error('讀取角色失敗', err);
   }
+  syncAttention();
   renderAgents();
 }
 

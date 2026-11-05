@@ -19,6 +19,7 @@
     --muted: #9aa3b2;
     --text: #e6e9ee;
     --warn: #f2994a;
+    --danger: #f0524f;
     --ok-bg: #1c2e2b;
   }
   body[data-theme="light"] {
@@ -34,6 +35,7 @@
     --muted: #5b6575;
     --text: #1b1f26;
     --warn: #c2620f;
+    --danger: #d32f2f;
     --ok-bg: #ddf1ec;
   }
 
@@ -73,6 +75,25 @@
   }
   .agent .badge { display: none; position: absolute; top: -2px; right: -2px; width: 13px; height: 13px; box-sizing: border-box; border-radius: 50%; background: var(--warn); border: 2px solid var(--shape-fill); }
   .agent.waiting .badge { display: block; }
+  /* 需要注意：等待回覆、回覆完成為橘色，回覆失敗為紅色。用 translate 彈跳，不與拖曳讓位的 transform 衝突 */
+  .agent.attn {
+    --attn: var(--warn);
+    border-color: var(--attn); background: color-mix(in srgb, var(--attn) 18%, transparent);
+    animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) infinite, agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite;
+  }
+  .agent.attn-error { --attn: var(--danger); }
+  .agent.attn:not(.attn-sticky) { animation-iteration-count: 2; } /* 聊天視窗開著時只提示一下，總長對應 ATTN_ONCE_MS */
+  .agent.attn-sticky .badge { display: block; background: var(--attn); }
+  @keyframes agent-bounce {
+    0%, 40%, 100% { translate: 0 0; }
+    12% { translate: 0 -7px; }
+    24% { translate: 0 0; }
+    32% { translate: 0 -3px; }
+  }
+  @keyframes agent-attn-ring {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--attn) 65%, transparent); }
+    70%, 100% { box-shadow: 0 0 0 9px transparent; }
+  }
   .agent .open-dot { display: none; position: absolute; bottom: -8px; left: 50%; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--c); }
   .agent.open .open-dot { display: block; }
   .agent-add {
