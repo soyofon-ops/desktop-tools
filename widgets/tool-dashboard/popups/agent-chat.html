@@ -111,6 +111,9 @@
   .field input:focus { border-color: var(--accent); }
   .field a { align-self: flex-start; font-size: 11px; color: var(--accent); }
   .form-err { font-size: 12px; color: var(--warn); min-height: 16px; }
+  .or { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--muted); margin: -4px 0; }
+  .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--stroke); }
+  .keyform .lead.small { font-size: 11px; margin-top: -8px; }
   .lock { display: flex; gap: 6px; font-size: 11px; color: var(--muted); line-height: 1.6; }
   [hidden] { display: none !important; }
 </style>
@@ -140,8 +143,8 @@
     <div class="keyform" id="keyform" hidden>
       <span class="big" aria-hidden="true"><svg class="icon" width="24" height="24" viewBox="0 0 24 24"><path d="M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r="1"/></svg></span>
       <div>
-        <h2>設定 Anthropic API Key</h2>
-        <p class="lead">角色透過 API Key 使用 Claude，依用量計費。<br>只需要設定一次，所有角色共用。</p>
+        <h2>選擇登入方式</h2>
+        <p class="lead">角色可透過 API Key 使用 Claude（依用量計費），<br>只需要設定一次，所有角色共用。</p>
       </div>
       <div class="field">
         <label for="key">API Key</label>
@@ -150,6 +153,9 @@
       </div>
       <div class="form-err" id="key-err" role="alert"></div>
       <button class="btn primary" id="key-save" style="height: 34px">驗證並儲存</button>
+      <div class="or"><span>或</span></div>
+      <button class="btn" id="use-local" style="height: 34px">沿用本機 Claude Code 登入</button>
+      <p class="lead small">使用你在這台電腦用 Claude Code 登入的帳號與方案額度，限自己使用。</p>
       <div class="lock">
         <svg class="icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 2px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         <span>金鑰以作業系統的加密功能保存在這台電腦，不會寫進設定檔。之後可在「設定」中更換或刪除。</span>

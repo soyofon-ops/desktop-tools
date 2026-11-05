@@ -274,3 +274,5 @@ th:last-child { z-index: 2; }
 .ref-grid label { display: flex; flex-direction: column; gap: 3px; }
 .ref-editor > .hint { font-size: 11px; }
 .warn-text { color: #ffd58f !important; margin-top: 8px; }
+.row-desc.warn { color: #ffd58f; }
+select.auth-select { width: 210px; flex: none; }

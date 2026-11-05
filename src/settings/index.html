@@ -45,6 +45,17 @@
       <h2>Claude 角色</h2>
       <div class="card">
         <div class="row">
+          <div><div class="row-title">登入方式</div><div class="row-desc" id="auth-desc">讀取中…</div></div>
+          <select id="auth-mode" class="auth-select" aria-label="登入方式">
+            <option value="apiKey">Anthropic API Key</option>
+            <option value="claudeCode">沿用本機 Claude Code 登入</option>
+          </select>
+        </div>
+        <div class="row" id="row-local" hidden>
+          <div><div class="row-title">本機 Claude Code</div><div class="row-desc" id="local-status">檢查中…</div></div>
+          <button class="btn" id="btn-local-check">重新檢查</button>
+        </div>
+        <div class="row" id="row-key">
           <div><div class="row-title">Anthropic API Key</div><div class="row-desc" id="key-status">讀取中…</div></div>
           <span style="display: flex; gap: 6px">
             <button class="btn danger" id="btn-key-clear" hidden>刪除</button>

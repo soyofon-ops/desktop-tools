@@ -449,7 +449,8 @@ function startAgents() {
     openPath: (dir) => shell.openPath(dir),
     getTheme: () => (config.widget('tool-dashboard').settings || {}).theme || 'dark',
     loadQuery: agentsRuntime.loadQuery,
-    buildQueryOptions: (key) => agentsRuntime.buildQueryOptions(key, { appVersion: app.getVersion() })
+    buildQueryOptions: (auth) => agentsRuntime.buildQueryOptions(auth, { appVersion: app.getVersion() }),
+    localAuthStatus: () => agentsRuntime.localAuthStatus()
   });
 }
 

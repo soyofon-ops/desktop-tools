@@ -136,16 +136,58 @@ function renderGeneral() {
 // ---------------------------------------------------------------------------
 // Claude 角色：API Key
 // ---------------------------------------------------------------------------
+const AUTH_DESC = {
+  apiKey: '使用 Claude Console 的 API Key，依用量計費',
+  claudeCode: '使用你在這台電腦以 Claude Code 登入的帳號與方案額度，限自己使用；本程式不讀取也不保存登入資料'
+};
+let authMode = null;
+
 function renderAgents(st) {
-  $('#key-status').textContent = st.hasKey ? '已設定，以作業系統的加密功能保存在這台電腦' : '尚未設定，Claude 角色需要 API Key 才能聊天';
+  const local = st.authMode === 'claudeCode';
+  $('#auth-mode').value = st.authMode;
+  $('#auth-desc').textContent = AUTH_DESC[st.authMode] || '';
+  $('#row-local').hidden = !local;
+  $('#key-status').textContent = st.hasKey
+    ? `已設定，以作業系統的加密功能保存在這台電腦${local ? '（目前未使用）' : ''}`
+    : (local ? '尚未設定（目前未使用）' : '尚未設定，選擇 API Key 登入時需要設定才能聊天');
   $('#btn-key-set').textContent = st.hasKey ? '更換' : '設定';
   $('#btn-key-clear').hidden = !st.hasKey;
   $('#path-agents').textContent = st.agentsDir || '';
+  if (local && authMode !== 'claudeCode') checkLocal();
+  authMode = st.authMode;
+}
+
+let checking = 0;
+async function checkLocal() {
+  const n = ++checking;
+  $('#local-status').textContent = '檢查中…';
+  $('#local-status').classList.remove('warn');
+  $('#btn-local-check').disabled = true;
+  try {
+    const st = await settings.agents.call('localAuthStatus');
+    if (n !== checking) return;
+    if (st.loggedIn) {
+      $('#local-status').textContent = `已登入${st.method ? `（${st.method}${st.source ? `，來源 ${st.source}` : ''}）` : ''}`;
+    } else {
+      $('#local-status').textContent = st.ok ? '尚未登入：請在終端機執行 claude 並完成登入，再按「重新檢查」' : `無法確認：${st.error}`;
+      $('#local-status').classList.add('warn');
+    }
+  } catch (err) {
+    if (n === checking) { $('#local-status').textContent = `無法確認：${err.message}`; $('#local-status').classList.add('warn'); }
+  } finally {
+    if (n === checking) $('#btn-local-check').disabled = false;
+  }
 }
 
 async function loadAgents() {
   try { renderAgents(await settings.agents.call('state')); } catch { /* 主程序尚未就緒 */ }
 }
+
+$('#auth-mode').addEventListener('change', (e) => run(async () => {
+  await settings.agents.call('setAuthMode', e.target.value);
+  toast(e.target.value === 'claudeCode' ? '已改用本機 Claude Code 登入' : '已改用 API Key');
+}).then(loadAgents)); // 失敗時把選單還原
+$('#btn-local-check').addEventListener('click', checkLocal);
 
 $('#btn-key-set').addEventListener('click', () => {
   const input = h('input', { type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off', spellcheck: 'false', class: 'mono' });

@@ -9,6 +9,7 @@ const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
 
 const MAX_ROLES = 4;
+const AUTH_MODES = ['apiKey', 'claudeCode'];
 const MAX_HISTORY = 300;
 const MASCOTS = ['blob', 'robot', 'cat', 'ghost', 'drop', 'cloud', 'owl', 'bear'];
 
@@ -46,7 +47,8 @@ function setupAgents(deps) {
   const {
     ipcMain, userDataDir, homeDir, safeStorage, fetch, trash, pickFolder,
     openPopup, isAllowedSender, broadcast, loadQuery, buildQueryOptions = () => ({}),
-    getTheme = () => 'dark', openPath = async () => {}
+    getTheme = () => 'dark', openPath = async () => {},
+    localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' })
   } = deps;
   const agentsDir = files.agentsDir(homeDir);
   const panelFile = path.join(userDataDir, 'agents.json');
@@ -54,10 +56,15 @@ function setupAgents(deps) {
   const keys = createKeyStore({ dir: userDataDir, safeStorage, fetch });
 
   // ---- 面板資料 ----
-  let panel = { roles: [], sessions: {} };
+  // authMode：'apiKey'（預設）或 'claudeCode'（沿用本機 Claude Code 的登入）
+  let panel = { roles: [], sessions: {}, authMode: 'apiKey' };
   try {
     const raw = JSON.parse(fs.readFileSync(panelFile, 'utf8'));
-    panel = { roles: Array.isArray(raw.roles) ? raw.roles : [], sessions: raw.sessions || {} };
+    panel = {
+      roles: Array.isArray(raw.roles) ? raw.roles : [],
+      sessions: raw.sessions || {},
+      authMode: AUTH_MODES.includes(raw.authMode) ? raw.authMode : 'apiKey'
+    };
   } catch { /* 第一次使用 */ }
 
   function savePanel() {
@@ -109,8 +116,11 @@ function setupAgents(deps) {
 
   /** session 事件 → 更新紀錄並轉送聊天視窗 */
   function onEvent(name, ev) {
+    if (ev.type === 'error' || (ev.type === 'result' && ev.isError)) ev = { ...ev, message: authHint(ev.message) };
     const h = historyOf(name);
     const last = h.items[h.items.length - 1];
+    // API 錯誤會先後以 error 與 result 各傳一次，同樣的訊息只顯示一次
+    if (ev.type === 'result' && ev.isError && last && last.role === 'error' && last.text === ev.message) ev = { ...ev, message: '' };
     switch (ev.type) {
       case 'delta':
         if (last && last.role === 'assistant' && last.streaming) last.text += ev.text;
@@ -180,7 +190,7 @@ function setupAgents(deps) {
       cwd: role.cwd && fs.existsSync(role.cwd) ? role.cwd : homeDir,
       resume: panel.sessions[name] || null,
       loadQuery,
-      buildOptions: () => buildQueryOptions(keys.get()),
+      buildOptions: () => buildQueryOptions({ mode: panel.authMode, apiKey: keys.get() }),
       emit: (ev) => onEvent(name, ev)
     });
     sessions.set(name, s);
@@ -213,9 +223,31 @@ function setupAgents(deps) {
       roles: panel.roles.map(roleView),
       max: MAX_ROLES,
       hasKey: !!keys.get(),
+      authMode: panel.authMode,
+      ready: canChat(),
       existing: [...defs.keys()].filter((n) => !panel.roles.some((r) => r.name === n)),
       agentsDir
     };
+  }
+
+  function canChat() {
+    return panel.authMode === 'claudeCode' || !!keys.get();
+  }
+
+  /** 錯誤訊息依登入方式補上該怎麼處理 */
+  function authHint(message) {
+    const m = String(message || '');
+    if (panel.authMode === 'claudeCode') {
+      if (/not logged in|please run \/login|login expired|authentication_error|OAuth token|API Key 無效/i.test(m)) {
+        return '本機的 Claude Code 尚未登入或登入已過期。請在終端機執行 claude 並完成登入，或到「設定 → Claude 角色」改用 API Key。';
+      }
+      if (/usage limit|rate.?limit|額度|太頻繁/i.test(m)) return `${m}（使用的是你 Claude 方案的額度）`;
+      return m;
+    }
+    if (/credit balance is too low|餘額不足/i.test(m)) {
+      return 'API 帳戶餘額不足：請到 Claude Console（platform.claude.com）的 Settings → Billing 儲值，或到「設定 → Claude 角色」改用本機 Claude Code 登入。';
+    }
+    return m;
   }
 
   function broadcastState() {
@@ -338,7 +370,7 @@ function setupAgents(deps) {
     },
 
     async send(name, text) {
-      if (!keys.get()) throw new Error('請先設定 API Key');
+      if (!canChat()) throw new Error('請先設定 API Key，或改用本機 Claude Code 登入');
       const t = String(text || '').trim();
       if (!t) return false;
       historyOf(name).items.push({ role: 'user', text: t });
@@ -372,7 +404,20 @@ function setupAgents(deps) {
       return s ? s.answer(id, decision) : false;
     },
 
-    keyStatus: () => ({ hasKey: !!keys.get() }),
+    keyStatus: () => ({ hasKey: !!keys.get(), authMode: panel.authMode }),
+
+    setAuthMode(mode) {
+      if (!AUTH_MODES.includes(mode)) throw new Error('未知的登入方式');
+      if (panel.authMode === mode) return true;
+      panel.authMode = mode;
+      savePanel();
+      for (const [name] of sessions) closeSession(name); // 換一份憑證重新啟動，對話會接續
+      broadcastState();
+      return true;
+    },
+
+    /** 本機 Claude Code 的登入狀態（只有狀態，不含憑證） */
+    localAuthStatus: () => localAuthStatus(),
 
     async setKey(key) {
       const k = String(key || '').trim();

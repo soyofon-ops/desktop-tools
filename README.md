@@ -167,8 +167,17 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 - **移除**：在編輯角色按「移除角色」，子代理檔案移到資源回收筒、對話紀錄刪除
 - 拖曳角色可調整順序（或 Alt + ←→）
 
-**登入**：使用 Anthropic API Key（依用量計費），第一次聊天時設定，或在「設定 → 一般 → Claude 角色」更換、刪除。
-金鑰以作業系統的加密功能（Windows DPAPI、macOS 鑰匙圈）保存在 `<設定資料夾>/anthropic-key.bin`，不寫進設定檔。
+**登入**：第一次聊天時選擇，之後可在「設定 → 一般 → Claude 角色 → 登入方式」切換（切換後對話會接續）。
+
+- **Anthropic API Key**（預設）：依用量計費，需先在 Claude Console 儲值。金鑰以作業系統的加密功能（Windows DPAPI、macOS 鑰匙圈）
+  保存在 `<設定資料夾>/anthropic-key.bin`，不寫進設定檔。
+- **沿用本機 Claude Code 登入**：使用這台電腦上 Claude Code 已登入的帳號與方案額度（需先在終端機執行 `claude` 登入）。
+  本程式不給 Claude Code 任何金鑰，由它自己讀取登入資料（Windows `%USERPROFILE%\.claude\.credentials.json`、macOS 鑰匙圈），
+  本程式不讀取也不保存；設定頁可檢查本機登入狀態（`claude auth status`）。
+
+> [!IMPORTANT]
+> 依 [Claude Code 的使用規範](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)，
+> 以 Agent SDK 開發給他人使用的產品應使用 API Key；「沿用本機 Claude Code 登入」僅供自己在自己的電腦上使用，散布給他人時請只用 API Key。
 
 **實作**：主程序以 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview)（`@anthropic-ai/claude-agent-sdk`）啟動 Claude Code，
 每個角色一個串流輸入 session，閒置 10 分鐘關閉程序、下次用 `resume` 接續（`src/agents/`）。

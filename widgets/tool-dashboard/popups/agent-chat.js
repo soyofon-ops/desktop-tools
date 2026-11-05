@@ -16,7 +16,7 @@ const ICON = {
 
 let name = null;
 let role = null;
-let hasKey = false;
+let ready = false; // 可以聊天：已設定 API Key，或選擇沿用本機 Claude Code 登入
 let busy = false;
 let stickToBottom = true;
 let streamEl = null;  // 串流中的回覆
@@ -332,7 +332,7 @@ async function saveKey() {
     const r = await window.agents.call('setKey', els.key.value);
     if (r.ok) {
       els.key.value = '';
-      hasKey = true;
+      ready = true;
       showKeyForm(false);
       els.input.focus();
     } else {
@@ -346,6 +346,30 @@ async function saveKey() {
   }
 }
 els.keySave.addEventListener('click', saveKey);
+
+// 沿用本機 Claude Code 登入：先問 Claude Code 本機是否已登入（只回傳狀態，不經手憑證）
+$('use-local').addEventListener('click', async () => {
+  const btn = $('use-local');
+  els.keyErr.textContent = '';
+  btn.disabled = true;
+  btn.textContent = '檢查本機登入中…';
+  try {
+    const st = await window.agents.call('localAuthStatus');
+    if (!st.loggedIn) {
+      els.keyErr.textContent = st.ok ? '這台電腦的 Claude Code 尚未登入，請先在終端機執行 claude 並完成登入，再按一次。' : `無法確認登入狀態：${st.error}`;
+      return;
+    }
+    await window.agents.call('setAuthMode', 'claudeCode');
+    ready = true;
+    showKeyForm(false);
+    els.input.focus();
+  } catch (err) {
+    els.keyErr.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '沿用本機 Claude Code 登入';
+  }
+});
 els.key.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
 
 // ---- 載入 ----
@@ -355,7 +379,7 @@ async function load(data) {
   const changed = data.name !== name;
   name = data.name;
   const state = await window.agents.call('state');
-  hasKey = state.hasKey;
+  ready = state.ready;
   role = state.roles.find((r) => r.name === name) || null;
   if (!role) { window.popup.close(); return; }
   renderHeader();
@@ -365,13 +389,13 @@ async function load(data) {
     autoSize();
     renderHistory(await window.agents.call('history', name));
   }
-  showKeyForm(!hasKey);
-  if (hasKey) els.input.focus();
+  showKeyForm(!ready);
+  if (ready) els.input.focus();
 }
 
 window.agents.onEvent(onEvent);
 window.agents.onChanged((state) => {
-  hasKey = state.hasKey;
+  ready = state.ready;
   const r = state.roles.find((x) => x.name === name);
   if (!r) {
     // 角色被移除或改名
@@ -382,7 +406,7 @@ window.agents.onChanged((state) => {
   }
   role = r;
   renderHeader();
-  if (els.keyform.hidden === hasKey) { /* 狀態一致 */ } else showKeyForm(!hasKey);
+  if (els.keyform.hidden !== ready) showKeyForm(!ready);
 });
 window.popup.onData(load);
 window.popup.getData().then(load);
