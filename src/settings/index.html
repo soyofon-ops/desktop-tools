@@ -42,6 +42,20 @@
           <span class="switch"><input type="checkbox" id="opt-locked"><span class="track"></span></span>
         </label>
       </div>
+      <h2>Claude 角色</h2>
+      <div class="card">
+        <div class="row">
+          <div><div class="row-title">Anthropic API Key</div><div class="row-desc" id="key-status">讀取中…</div></div>
+          <span style="display: flex; gap: 6px">
+            <button class="btn danger" id="btn-key-clear" hidden>刪除</button>
+            <button class="btn" id="btn-key-set">設定</button>
+          </span>
+        </div>
+        <div class="row">
+          <div><div class="row-title">子代理資料夾</div><div class="row-desc mono" id="path-agents"></div></div>
+          <button class="btn" id="btn-agents-dir">開啟</button>
+        </div>
+      </div>
       <h2>檔案位置</h2>
       <div class="card">
         <div class="row">

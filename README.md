@@ -13,7 +13,7 @@
 | 小工具    | 說明                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
 | FF14 時鐘 | 顯示艾奧傑亞時間（ET）與本地時間（LT），點擊切換主要顯示的時間，選擇會被記住 |
-| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁 |
+| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁；上方的角色面板可和最多 4 個 Claude Code 角色快速聊天 |
 
 ## 開發與打包
 
@@ -95,6 +95,11 @@ await window.widget.openPopup({ page: 'popups/jwt.html', width: 456, height: 560
 //   await window.popup.copyText(text)    複製到剪貼簿
 //   window.popup.close()
 
+// Claude 角色（工具儀表盤用）：方法見 src/agents/index.js 的 api
+await window.widget.agents.call('state');               // { roles, max, hasKey, existing, agentsDir }
+window.widget.agents.onChanged((state) => { ... });     // 角色或狀態改變
+window.widget.agents.onEvent(({ name, event }) => { ... }); // 對話事件（串流文字、工具、核准…）
+
 // 檢查正規表示式是否有 ReDoS 風險（recheck，在主程序執行）
 const r = await window.widget.checkRegex('^(a+)+$', '');
 // → { status: 'safe' | 'vulnerable' | 'unknown', complexity, hotspot, attack, error, elapsed }
@@ -148,6 +153,29 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 ```
 
 - 彈出視窗優先放在小工具左邊（上緣對齊），放不下時改放右邊或下方；只能開啟小工具自己資料夾內的頁面，小工具關閉時一起關閉。
+
+### Claude 角色（快速聊天）
+
+儀表盤上方的圓角面板放最多 4 個 Claude Code 角色，每個角色是一隻有自己顏色的吉祥物。
+
+- **新增**：點「＋」填寫顯示名稱、代號、何時使用、角色說明、模型、工作資料夾與可用工具。也可以直接加入在終端機建立過的子代理
+- **角色就是 Claude Code 子代理**：存成 `~/.claude/agents/<代號>.md`，終端機的 Claude Code 也能叫用；在終端機修改檔案，面板會自動更新。顯示名稱、吉祥物、工作資料夾與順序另外存在 `<設定資料夾>/agents.json`
+- **聊天**：點角色開啟聊天視窗，回覆即時串流顯示；讀檔、搜尋等動作縮成一行。要修改檔案或執行指令時會跳出卡片，選「允許」「這個對話都允許」或「拒絕」（預設焦點在拒絕）
+- 每個角色記住自己的對話（`<設定資料夾>/agent-chats/`），重新開啟程式也能接續；「新對話」清除紀錄重來；可隨時停止回覆
+- **完整 Claude Code**：會載入 `~/.claude` 與工作資料夾裡的設定、CLAUDE.md、技能與 MCP 伺服器
+- **狀態**：回覆中時吉祥物有光圈、等你核准時右上角有橘點、聊天視窗開著時下方有小點
+- **移除**：在編輯角色按「移除角色」，子代理檔案移到資源回收筒、對話紀錄刪除
+- 拖曳角色可調整順序（或 Alt + ←→）
+
+**登入**：使用 Anthropic API Key（依用量計費），第一次聊天時設定，或在「設定 → 一般 → Claude 角色」更換、刪除。
+金鑰以作業系統的加密功能（Windows DPAPI、macOS 鑰匙圈）保存在 `<設定資料夾>/anthropic-key.bin`，不寫進設定檔。
+
+**實作**：主程序以 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview)（`@anthropic-ai/claude-agent-sdk`）啟動 Claude Code，
+每個角色一個串流輸入 session，閒置 10 分鐘關閉程序、下次用 `resume` 接續（`src/agents/`）。
+
+> [!NOTE]
+> SDK 附帶各平台的 Claude Code 原生執行檔（Windows 約 340 MB、壓縮後約 160 MB），安裝檔會因此變大；
+> 打包時以 `asarUnpack` 解出，`src/agents/runtime.js` 指向解出後的路徑。
 
 ### ReDoS 檢查與打包
 

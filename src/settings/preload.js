@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('settings', {
   update: (action, payload) => invoke('settings:update', action, payload),
   onState: (fn) => ipcRenderer.on('settings:state', (_e, s) => fn(s)),
 
+  /** Claude 角色（API Key 管理），方法見 src/agents/index.js */
+  agents: {
+    call: (method, ...args) => invoke('agents:call', method, ...args),
+    onChanged: (fn) => ipcRenderer.on('agents:changed', (_e, s) => fn(s))
+  },
+
   db: {
     categories: () => invoke('db:call', 'listCategories'),
     createCategory: (c) => invoke('db:call', 'createCategory', c),

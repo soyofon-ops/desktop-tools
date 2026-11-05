@@ -43,6 +43,25 @@ contextBridge.exposeInMainWorld('widget', {
    *   await widget.checkRegex('^(a+)+$', '') → { status: 'safe'|'vulnerable'|'unknown', complexity, hotspot, attack, error, elapsed }
    */
   checkRegex: (source, flags) => ipcRenderer.invoke('widget:check-regex', source, flags),
+  /**
+   * Claude Code 角色（工具儀表盤）：await widget.agents.call('state')、('send', name, text)…
+   * 方法見 src/agents/index.js 的 api
+   */
+  agents: {
+    call: (method, ...args) => agentsCall(method, ...args),
+    /** 角色清單或狀態改變 */
+    onChanged: (fn) => {
+      const h = (_e, state) => fn(state);
+      ipcRenderer.on('agents:changed', h);
+      return () => ipcRenderer.removeListener('agents:changed', h);
+    },
+    /** 對話事件 { name, event, cost, model } */
+    onEvent: (fn) => {
+      const h = (_e, payload) => fn(payload);
+      ipcRenderer.on('agents:event', h);
+      return () => ipcRenderer.removeListener('agents:event', h);
+    }
+  },
 
   /**
    * 資料庫（分類與欄位在「設定 → 資料庫」建立）
@@ -70,6 +89,15 @@ contextBridge.exposeInMainWorld('widget', {
     }
   }
 });
+
+// 角色 API 呼叫：去掉 Electron 加在錯誤訊息前面的說明
+async function agentsCall(method, ...args) {
+  try {
+    return await ipcRenderer.invoke('agents:call', method, ...args);
+  } catch (err) {
+    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+  }
+}
 
 // 把主程序的錯誤訊息還原成乾淨的 Error（去掉 Electron 加的前綴）
 async function dbCall(method, ...args) {

@@ -133,6 +133,54 @@ function renderGeneral() {
   for (const key of ['config', 'database', 'userWidgets']) $(`#path-${key}`).textContent = state.paths[key];
 }
 
+// ---------------------------------------------------------------------------
+// Claude 角色：API Key
+// ---------------------------------------------------------------------------
+function renderAgents(st) {
+  $('#key-status').textContent = st.hasKey ? '已設定，以作業系統的加密功能保存在這台電腦' : '尚未設定，Claude 角色需要 API Key 才能聊天';
+  $('#btn-key-set').textContent = st.hasKey ? '更換' : '設定';
+  $('#btn-key-clear').hidden = !st.hasKey;
+  $('#path-agents').textContent = st.agentsDir || '';
+}
+
+async function loadAgents() {
+  try { renderAgents(await settings.agents.call('state')); } catch { /* 主程序尚未就緒 */ }
+}
+
+$('#btn-key-set').addEventListener('click', () => {
+  const input = h('input', { type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off', spellcheck: 'false', class: 'mono' });
+  const body = h('div', {}, formRow('API Key', input, '到 Claude Console（platform.claude.com）建立；儲存前會先驗證'));
+  openModal({
+    title: '設定 Anthropic API Key',
+    body,
+    okText: '驗證並儲存',
+    onOk: async () => {
+      const r = await settings.agents.call('setKey', input.value);
+      if (!r.ok) throw new Error(r.message);
+      toast('已儲存 API Key');
+      loadAgents();
+    }
+  });
+});
+
+$('#btn-key-clear').addEventListener('click', () => {
+  openModal({
+    title: '刪除 API Key？',
+    body: h('p', {}, '刪除後 Claude 角色無法聊天，直到重新設定。'),
+    okText: '刪除',
+    danger: true,
+    onOk: async () => {
+      await settings.agents.call('clearKey');
+      toast('已刪除 API Key');
+      loadAgents();
+    }
+  });
+});
+
+$('#btn-agents-dir').addEventListener('click', () => run(() => settings.agents.call('openAgentsDir')));
+settings.agents.onChanged(renderAgents);
+loadAgents();
+
 function renderWidgets() {
   const list = $('#widget-list');
   if (!state.widgets.length) {

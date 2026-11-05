@@ -1,10 +1,12 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, safeStorage, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const db = require('./database');
 const { pickColor } = require('./color-picker');
 const { checkRegex } = require('./redos');
+const { setupAgents } = require('./agents');
+const agentsRuntime = require('./agents/runtime');
 
 // ---- 只允許一個實例 ----
 if (!app.requestSingleInstanceLock()) {
@@ -227,7 +229,14 @@ function popupPosition(ownerBounds, w, h) {
 ipcMain.handle('widget:open-popup', (e, opts = {}) => {
   const id = widgetIdFromSender(e.sender);
   if (!id) return false;
-  const { dir, manifest, win: ownerWin } = widgets.get(id);
+  return !!openPopupFor(id, opts);
+});
+
+/** 在小工具旁開啟彈出視窗（小工具未開啟時回傳 null）；回傳視窗 */
+function openPopupFor(id, opts = {}) {
+  const entry = widgets.get(id);
+  if (!entry || !entry.win || entry.win.isDestroyed()) return null;
+  const { dir, manifest, win: ownerWin } = entry;
 
   // 只允許開啟小工具自己資料夾內的頁面
   const root = path.resolve(dir);
@@ -246,7 +255,7 @@ ipcMain.handle('widget:open-popup', (e, opts = {}) => {
     p.win.webContents.send('popup:data', p.data);
     p.win.show();
     p.win.focus();
-    return true;
+    return p.win;
   }
 
   const ob = ownerWin.getBounds();
@@ -278,9 +287,18 @@ ipcMain.handle('widget:open-popup', (e, opts = {}) => {
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
   win.once('ready-to-show', () => { win.show(); win.focus(); });
+  // 頁面內的連結用預設瀏覽器開啟，不在彈出視窗裡換頁
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (ev, url) => {
+    ev.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
   win.loadFile(file);
-  return true;
-});
+  return win;
+}
 
 function popupFromSender(sender) {
   for (const p of popups.values()) if (!p.win.isDestroyed() && p.win.webContents === sender) return p;
@@ -295,6 +313,7 @@ ipcMain.handle('popup:get-data', (e) => {
   const p = popupFromSender(e.sender);
   return p ? p.data : null;
 });
+ipcMain.handle('popup:read-text', (e) => (popupFromSender(e.sender) ? clipboard.readText() : ''));
 ipcMain.handle('popup:copy-text', (e, text) => {
   if (!popupFromSender(e.sender)) return false;
   clipboard.writeText(String(text ?? ''));
@@ -399,6 +418,39 @@ function resetWidgetPosition(id) {
 
 function broadcast(channel, ...args) {
   for (const e of widgets.values()) e.win && e.win.webContents.send(channel, ...args);
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code 角色（工具儀表盤的角色面板、快速聊天）：實作見 agents/
+// ---------------------------------------------------------------------------
+let agents = null;
+
+function startAgents() {
+  agents = setupAgents({
+    ipcMain,
+    userDataDir: app.getPath('userData'),
+    homeDir: app.getPath('home'),
+    safeStorage,
+    fetch: (url, opts) => net.fetch(url, opts), // 走系統的網路與 Proxy 設定
+    trash: (file) => shell.trashItem(file),
+    pickFolder: async (current) => {
+      const r = await dialog.showOpenDialog({ defaultPath: current, properties: ['openDirectory', 'createDirectory'] });
+      return r.canceled ? null : r.filePaths[0];
+    },
+    openPopup: (opts) => openPopupFor('tool-dashboard', opts),
+    // 只接受小工具、彈出視窗與設定視窗的呼叫
+    isAllowedSender: (sender) => !!widgetIdFromSender(sender) || !!popupFromSender(sender)
+      || !!(settingsWin && !settingsWin.isDestroyed() && settingsWin.webContents === sender),
+    broadcast: (channel, payload) => {
+      broadcast(channel, payload);
+      for (const p of popups.values()) if (!p.win.isDestroyed()) p.win.webContents.send(channel, payload);
+      if (channel === 'agents:changed' && settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send(channel, payload);
+    },
+    openPath: (dir) => shell.openPath(dir),
+    getTheme: () => (config.widget('tool-dashboard').settings || {}).theme || 'dark',
+    loadQuery: agentsRuntime.loadQuery,
+    buildQueryOptions: (key) => agentsRuntime.buildQueryOptions(key, { appVersion: app.getVersion() })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +720,7 @@ app.whenReady().then(() => {
   }
   discoverWidgets();
   applyAutoStart();
+  startAgents();
   createTray();
   restoreWidgets();
   rebuildTrayMenu();
@@ -688,4 +741,8 @@ app.whenReady().then(() => {
 // 再次執行程式（例如點兩下捷徑）時開啟設定視窗
 app.on('second-instance', () => openSettings());
 app.on('window-all-closed', () => { /* 常駐系統匣，不因視窗全關而結束 */ });
-app.on('before-quit', () => { config.saveNow(); db.saveNow(); });
+app.on('before-quit', () => {
+  config.saveNow();
+  db.saveNow();
+  if (agents) agents.dispose(); // 結束所有 Claude Code 程序
+});

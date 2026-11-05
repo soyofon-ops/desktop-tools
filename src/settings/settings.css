@@ -105,7 +105,7 @@ label.row { cursor: pointer; }
 .icon-btn.danger:hover { color: var(--danger); }
 .icon-btn:disabled { opacity: 0.3; cursor: default; background: none; }
 
-input[type=text], input[type=number], input[type=date], input[type=time], input[type=url], select, textarea {
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=url], select, textarea {
   width: 100%;
   background: #121420; border: 1px solid var(--line-strong);
   border-radius: 6px; padding: 5px 8px; outline: none;

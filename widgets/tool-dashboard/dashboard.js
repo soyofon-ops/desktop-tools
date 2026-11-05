@@ -1,12 +1,14 @@
 // 工具儀表盤：倒梯形面板，每頁 5 × 2 個圓形圖示按鈕，超過 10 個自動分頁
 const PER_PAGE = 10;
 const PAGE_STEP = 204;      // 一頁 188（5 × 28 + 4 × 12）+ 頁間距 16
-const BASE_HEIGHT = 126;    // widget.json 的 height
+const BASE_HEIGHT = 196;    // widget.json 的 height（角色面板 64 + 間距 6 + 梯形 104 + 上下留白）
 const TOAST_HEIGHT = 38;    // 6px 間距 + 32px 通知
 const TIP_HEIGHT = 20;      // 工具提示需要多出的高度（6px 間距 + 24px 提示 + 陰影，扣掉原本留白）
 const TIP_DELAY = 350;      // 滑鼠停留多久才顯示提示
 const TIP_MIN_X = 22;       // 提示的左右界線：面板下方斜邊在這個高度的位置
 const TIP_MAX_X = 258;
+const TIP_TOP_DASH = 180;   // 梯形下方的提示位置
+const TIP_TOP_AGENTS = 70;  // 角色面板下方的提示位置（蓋在梯形上，不需要長高）
 const TOAST_MS = 2500;
 const CELL = 28;            // 按鈕直徑
 const CELL_STEP = 40;       // 按鈕直徑 + 間距
@@ -25,6 +27,7 @@ let order = tools.slice();
 const els = {
   body: document.body,
   dash: document.getElementById('dash'),
+  agents: document.getElementById('agents'),
   viewport: document.querySelector('.viewport'),
   track: document.getElementById('track'),
   prev: document.getElementById('prev'),
@@ -164,10 +167,11 @@ function goTo(p) {
 // ---- 視窗高度：通知優先，其次是工具提示 ----
 let toastOn = false;
 let tipOn = false;
+let tipExtra = 0;           // 目前的提示需要多出的視窗高度
 
 function syncHeight() {
   if (!hasApi()) return;
-  window.widget.setHeight(BASE_HEIGHT + (toastOn ? TOAST_HEIGHT : tipOn ? TIP_HEIGHT : 0));
+  window.widget.setHeight(BASE_HEIGHT + (toastOn ? TOAST_HEIGHT : tipOn ? tipExtra : 0));
 }
 
 // ---- 工具提示 ----
@@ -186,14 +190,14 @@ function bindTip(el) {
 
 function scheduleTip(el) {
   clearTimeout(tipTimer);
-  if (drag && drag.started) return; // 拖曳中不顯示提示
+  if ((drag && drag.started) || (agentDrag && agentDrag.started)) return; // 拖曳中不顯示提示
   // 剛從另一個按鈕移過來（提示還在或剛收起）就直接顯示，不再等待
   const instant = tipOn || Date.now() - tipHiddenAt < 300;
   tipTimer = setTimeout(() => showTip(el), instant ? 0 : TIP_DELAY);
 }
 
 function showTip(el) {
-  if (toastOn || !el.dataset.tip || (drag && drag.started)) return;
+  if (toastOn || !el.dataset.tip || (drag && drag.started) || (agentDrag && agentDrag.started)) return;
   clearTimeout(tipHideTimer);
   els.tipText.textContent = el.dataset.tip;
   els.tip.hidden = false;
@@ -203,8 +207,15 @@ function showTip(el) {
   const r = el.getBoundingClientRect();
   const cx = r.left + r.width / 2 - stage.left;
   const w = els.tip.offsetWidth;
-  const left = Math.max(TIP_MIN_X, Math.min(TIP_MAX_X - w, cx - w / 2));
+  const inAgents = !!el.closest('.agents');
+  const left = inAgents
+    ? Math.max(4, Math.min(276 - w, cx - w / 2)) // 角色面板是長方形，左右可以放寬
+    : Math.max(TIP_MIN_X, Math.min(TIP_MAX_X - w, cx - w / 2));
   els.tip.style.left = `${left}px`;
+  els.tip.style.top = `${inAgents ? TIP_TOP_AGENTS : TIP_TOP_DASH}px`;
+  const extra = inAgents ? 0 : TIP_HEIGHT;
+  if (tipOn && extra !== tipExtra) { tipExtra = extra; syncHeight(); }
+  tipExtra = extra;
   // 箭頭盡量指向按鈕，但不超出提示本身的圓角範圍
   els.tip.style.setProperty('--caret', `${Math.max(10, Math.min(w - 10, cx - left))}px`);
 
@@ -481,9 +492,168 @@ els.theme.addEventListener('click', () => {
   if (hasApi()) window.widget.saveSettings({ theme: next });
 });
 
+// ---- Claude 角色面板 ----
+const AGENT_STATE_LABEL = { running: '回覆中', waiting: '等待核准' };
+const agentsApi = window.widget && window.widget.agents;
+let agentState = { roles: [], max: 4 };
+let agentDrag = null;
+let agentSuppressClick = false;
+
+function renderAgents() {
+  const panel = els.agents;
+  if (agentDrag && agentDrag.started) return; // 拖曳中不重畫，放開後再更新
+  panel.textContent = '';
+  for (const r of agentState.roles) {
+    const color = (window.AGENT_COLORS[r.color] || window.AGENT_COLORS.blue).hex;
+    const mascot = window.MASCOTS[r.mascot] || window.MASCOTS.blob;
+    const btn = document.createElement('button');
+    btn.className = `agent${r.state === 'running' ? ' running' : ''}${r.state === 'waiting' ? ' waiting' : ''}${r.open ? ' open' : ''}`;
+    btn.dataset.name = r.name;
+    btn.style.setProperty('--c', color);
+    const label = AGENT_STATE_LABEL[r.state] ? `${r.displayName} · ${AGENT_STATE_LABEL[r.state]}` : r.displayName;
+    btn.dataset.tip = label;
+    btn.setAttribute('aria-label', `${label}（Alt + ←→ 調整順序）`);
+    btn.innerHTML = `${mascot.svg(color, 32)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
+    btn.addEventListener('click', () => {
+      if (agentSuppressClick) return;
+      hideTip();
+      agentsApi.call('openChat', r.name);
+    });
+    bindTip(btn);
+    panel.appendChild(btn);
+  }
+  if (agentState.roles.length < (agentState.max || 4)) {
+    const add = document.createElement('button');
+    add.className = 'agent-add';
+    add.dataset.tip = '新增 Claude 角色';
+    add.setAttribute('aria-label', '新增 Claude 角色');
+    add.innerHTML = '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+    add.addEventListener('click', () => { hideTip(); agentsApi.call('openEditor', null); });
+    bindTip(add);
+    panel.appendChild(add);
+  }
+  // 提示顯示中的按鈕重畫後補回提示內容（例如狀態從「回覆中」變成閒置）
+  if (hovered && !hovered.isConnected && hovered.dataset.name) {
+    const again = panel.querySelector(`.agent[data-name="${hovered.dataset.name}"]`);
+    if (again) { hovered = again; if (tipOn) showTip(again); }
+  }
+}
+
+// 拖曳調整角色順序：放開後才儲存
+els.agents.addEventListener('pointerdown', (e) => {
+  const btn = e.target.closest('.agent');
+  if (!btn || e.button !== 0 || !agentsApi) return;
+  const r = btn.getBoundingClientRect();
+  agentDrag = { btn, name: btn.dataset.name, pointerId: e.pointerId, sx: e.clientX, offX: e.clientX - r.left, started: false, ghost: null };
+});
+
+window.addEventListener('pointermove', (e) => {
+  const d = agentDrag;
+  if (!d || e.pointerId !== d.pointerId) return;
+  if (!d.started) {
+    if (Math.abs(e.clientX - d.sx) < DRAG_THRESHOLD) return;
+    d.started = true;
+    hideTip();
+    try { els.agents.setPointerCapture(d.pointerId); } catch { /* 已放開 */ }
+    document.documentElement.classList.add('tool-dragging');
+    d.ghost = d.btn.cloneNode(true);
+    d.ghost.classList.add('agent-ghost');
+    d.ghost.classList.remove('running');
+    els.agents.appendChild(d.ghost);
+    d.btn.classList.add('dragging');
+  }
+  const p = els.agents.getBoundingClientRect();
+  const x = Math.max(4, Math.min(p.width - 48, e.clientX - p.left - d.offX));
+  d.ghost.style.left = `${x}px`;
+  d.ghost.style.top = '9px';
+  // 依指標位置決定插入點，其他按鈕即時讓位
+  const items = [...els.agents.querySelectorAll('.agent:not(.agent-ghost)')];
+  const before = snapshotAgents(items);
+  const target = items.find((b) => b !== d.btn && e.clientX < b.getBoundingClientRect().left + 22);
+  const current = items.indexOf(d.btn);
+  const targetIdx = target ? items.indexOf(target) : items.length;
+  if (targetIdx !== current && targetIdx !== current + 1) {
+    els.agents.insertBefore(d.btn, target || els.agents.querySelector('.agent-add') || d.ghost);
+    flipAgents(items, before);
+  }
+});
+
+function snapshotAgents(items) {
+  return new Map(items.map((b) => [b, b.getBoundingClientRect().left]));
+}
+
+function flipAgents(items, before) {
+  for (const b of items) {
+    const dx = before.get(b) - b.getBoundingClientRect().left;
+    if (!dx) continue;
+    b.style.transition = 'none';
+    b.style.transform = `translateX(${dx}px)`;
+    b.getBoundingClientRect();
+    b.style.transition = 'transform 0.18s ease';
+    b.style.transform = '';
+  }
+}
+
+function endAgentDrag(commit) {
+  const d = agentDrag;
+  agentDrag = null;
+  if (!d || !d.started) return;
+  try { els.agents.releasePointerCapture(d.pointerId); } catch { /* 已釋放 */ }
+  document.documentElement.classList.remove('tool-dragging');
+  d.ghost.remove();
+  d.btn.classList.remove('dragging');
+  const names = [...els.agents.querySelectorAll('.agent')].map((b) => b.dataset.name);
+  agentSuppressClick = true;
+  setTimeout(() => { agentSuppressClick = false; }, 0);
+  if (commit && names.join() !== agentState.roles.map((r) => r.name).join()) {
+    const byName = new Map(agentState.roles.map((r) => [r.name, r]));
+    agentState.roles = names.map((n) => byName.get(n)).filter(Boolean);
+    agentsApi.call('reorder', names);
+  }
+  renderAgents();
+}
+
+window.addEventListener('pointerup', (e) => {
+  if (agentDrag && e.pointerId === agentDrag.pointerId) {
+    if (agentDrag.started) endAgentDrag(true);
+    else agentDrag = null;
+  }
+});
+window.addEventListener('pointercancel', () => endAgentDrag(false));
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && agentDrag && agentDrag.started) endAgentDrag(false); });
+
+// 鍵盤調整順序：Alt + ←→
+els.agents.addEventListener('keydown', (e) => {
+  const btn = e.target.closest('.agent');
+  if (!btn || !e.altKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const names = agentState.roles.map((r) => r.name);
+  const i = names.indexOf(btn.dataset.name);
+  const j = i + (e.key === 'ArrowLeft' ? -1 : 1);
+  if (j < 0 || j >= names.length) return;
+  [names[i], names[j]] = [names[j], names[i]];
+  const byName = new Map(agentState.roles.map((r) => [r.name, r]));
+  agentState.roles = names.map((n) => byName.get(n));
+  renderAgents();
+  els.agents.querySelector(`.agent[data-name="${btn.dataset.name}"]`).focus();
+  agentsApi.call('reorder', names);
+});
+
+async function initAgents() {
+  if (!agentsApi) { els.agents.hidden = true; return; }
+  agentsApi.onChanged((s) => { agentState = s; renderAgents(); });
+  try {
+    agentState = await agentsApi.call('state');
+  } catch (err) {
+    console.error('讀取角色失敗', err);
+  }
+  renderAgents();
+}
+
 // ---- 啟動 ----
 buildPages();
 goTo(0);
+initAgents();
 setTheme('dark');
 
 (async () => {
