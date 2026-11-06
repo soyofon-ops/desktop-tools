@@ -174,7 +174,7 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
   保存在 `<設定資料夾>/anthropic-key.bin`，不寫進設定檔。
 - **沿用本機 Claude Code 登入**：使用這台電腦上 Claude Code 已登入的帳號與方案額度（需先在終端機執行 `claude` 登入）。
   本程式不給 Claude Code 任何金鑰，由它自己讀取登入資料（Windows `%USERPROFILE%\.claude\.credentials.json`、macOS 鑰匙圈），
-  本程式不讀取也不保存；設定頁可檢查本機登入狀態（`claude auth status`）。
+  本程式不讀取也不保存；設定頁可檢查本機登入狀態（`claude auth status`），也會顯示方案使用量（5 小時、7 天等額度的百分比與重置時間），開啟設定頁時查詢一次，可手動重新整理。這是 Agent SDK 的實驗性功能，查詢不會呼叫模型或留下對話紀錄；API Key 模式沒有方案額度，請到 Claude Console 查看。
 
 > [!IMPORTANT]
 > 依 [Claude Code 的使用規範](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)，

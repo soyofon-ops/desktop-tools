@@ -7,6 +7,7 @@ const path = require('path');
 const files = require('./agent-files');
 const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
+const { planUsage: fetchPlanUsage } = require('./runtime');
 
 const MAX_ROLES = 4;
 const AUTH_MODES = ['apiKey', 'claudeCode'];
@@ -269,6 +270,7 @@ function setupAgents(deps) {
   });
 
   // ---- 呼叫 ----
+  let usageQuery = null; // 進行中的方案使用量查詢
   const api = {
     state: () => stateView(),
 
@@ -426,6 +428,17 @@ function setupAgents(deps) {
 
     /** 本機 Claude Code 的登入狀態（只有狀態，不含憑證） */
     localAuthStatus: () => localAuthStatus(),
+
+    /** 方案使用量（只有本機 Claude Code 登入才有方案額度）；同時間只查一次 */
+    planUsage() {
+      if (panel.authMode !== 'claudeCode') return { available: false, reason: 'apiKey' };
+      if (!usageQuery) {
+        usageQuery = fetchPlanUsage({ loadQuery, options: buildQueryOptions({ mode: 'claudeCode' }), cwd: homeDir })
+          .catch((err) => ({ available: false, reason: 'error', message: String((err && err.message) || err) }))
+          .finally(() => { usageQuery = null; });
+      }
+      return usageQuery;
+    },
 
     async setKey(key) {
       const k = String(key || '').trim();

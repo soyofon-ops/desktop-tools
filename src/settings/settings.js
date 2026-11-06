@@ -154,6 +154,8 @@ function renderAgents(st) {
   $('#btn-key-clear').hidden = !st.hasKey;
   $('#path-agents').textContent = st.agentsDir || '';
   if (local && authMode !== 'claudeCode') checkLocal();
+  // agents:changed 很頻繁，只有開啟設定頁或切換登入方式時才查詢使用量
+  if (authMode !== st.authMode) loadUsage(local);
   authMode = st.authMode;
 }
 
@@ -179,6 +181,73 @@ async function checkLocal() {
   }
 }
 
+const USAGE_PLANS = { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' };
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/** 重置時間：今天只顯示時間，其他日子加上日期 */
+function formatReset(iso) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const today = d.toDateString() === new Date().toDateString();
+  return `${today ? '' : `${d.getMonth() + 1}/${d.getDate()} `}${time} 重置`;
+}
+
+function usageItem({ label, percent, resetsAt }) {
+  const value = Math.round(Math.min(100, Math.max(0, percent)));
+  const fill = h('div', { class: `usage-fill${value >= 90 ? ' high' : ''}` });
+  fill.style.width = `${value}%`;
+  return h('div', { class: 'usage-item' },
+    h('span', { class: 'usage-label' }, label),
+    h('div', { class: 'usage-bar', role: 'progressbar', 'aria-label': label, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(value) }, fill),
+    h('span', { class: 'usage-value' }, `${value}%`),
+    h('span', { class: 'usage-reset' }, formatReset(resetsAt)));
+}
+
+let usageRun = 0;
+async function loadUsage(local) {
+  const n = ++usageRun;
+  const status = $('#usage-status');
+  const list = $('#usage-list');
+  const refresh = $('#btn-usage-refresh');
+  const plan = $('#usage-plan');
+  const setStatus = (text, warn = false) => {
+    status.textContent = text;
+    status.classList.toggle('warn', warn);
+  };
+  refresh.hidden = !local;
+  if (!local) {
+    plan.hidden = true;
+    list.textContent = '';
+    setStatus('API Key 依用量計費，請到 Claude Console（platform.claude.com）查看');
+    return;
+  }
+  refresh.disabled = true;
+  setStatus('查詢中…');
+  let usage;
+  try {
+    usage = await settings.agents.call('planUsage');
+  } catch (err) {
+    usage = { available: false, reason: 'error', message: err.message };
+  }
+  if (n !== usageRun) return; // 已切換登入方式或重新查詢
+  refresh.disabled = false;
+  plan.hidden = !usage.plan;
+  plan.textContent = usage.plan ? USAGE_PLANS[usage.plan] || usage.plan : '';
+  list.textContent = '';
+  if (!usage.available) {
+    setStatus(usage.reason === 'error'
+      ? `無法取得：${usage.message}`
+      : '無法取得使用量：請確認已用 Claude 訂閱帳號登入 Claude Code', true);
+  } else if (!usage.windows.length) {
+    setStatus('目前的方案沒有可顯示的額度');
+  } else {
+    list.append(...usage.windows.map(usageItem));
+    const now = new Date();
+    setStatus(`更新於 ${pad2(now.getHours())}:${pad2(now.getMinutes())}`);
+  }
+}
+
 async function loadAgents() {
   try { renderAgents(await settings.agents.call('state')); } catch { /* 主程序尚未就緒 */ }
 }
@@ -188,6 +257,7 @@ $('#auth-mode').addEventListener('change', (e) => run(async () => {
   toast(e.target.value === 'claudeCode' ? '已改用本機 Claude Code 登入' : '已改用 API Key');
 }).then(loadAgents)); // 失敗時把選單還原
 $('#btn-local-check').addEventListener('click', checkLocal);
+$('#btn-usage-refresh').addEventListener('click', () => loadUsage(true));
 
 $('#btn-key-set').addEventListener('click', () => {
   const input = h('input', { type: 'password', placeholder: 'sk-ant-…', autocomplete: 'off', spellcheck: 'false', class: 'mono' });

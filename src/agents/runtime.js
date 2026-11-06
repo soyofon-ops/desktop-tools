@@ -94,4 +94,49 @@ function localAuthStatus({ timeoutMs = 20000, spawn = require('child_process').s
   });
 }
 
-module.exports = { loadQuery, nativeBinary, buildQueryOptions, childEnv, localAuthStatus };
+/** 只取已知的額度欄位；SDK 回傳的其他欄位未公開，可能隨時變動 */
+function summarizePlanUsage(raw) {
+  const limits = (raw && raw.rate_limits) || null;
+  if (!raw || !raw.rate_limits_available || !limits) {
+    return { available: false, reason: 'unavailable', plan: (raw && raw.subscription_type) || null };
+  }
+  const windows = [];
+  const add = (label, w) => {
+    if (w && typeof w.utilization === 'number') windows.push({ label, percent: w.utilization, resetsAt: w.resets_at || null });
+  };
+  add('5 小時', limits.five_hour);
+  add('7 天', limits.seven_day);
+  add('Opus（7 天）', limits.seven_day_opus);
+  add('Sonnet（7 天）', limits.seven_day_sonnet);
+  for (const m of Array.isArray(limits.model_scoped) ? limits.model_scoped : []) add(`${m.display_name}（7 天）`, m);
+  if (limits.extra_usage && limits.extra_usage.is_enabled) add('額外用量', limits.extra_usage);
+  return { available: true, plan: raw.subscription_type || null, windows };
+}
+
+/**
+ * 查詢 Claude 方案使用量：啟動不送訊息的暫時 session，不呼叫模型、不留對話紀錄，查完立即關閉。
+ * 憑證由 Claude Code 自行處理。SDK 的這個方法還是實驗性 API，失敗時由呼叫端顯示「無法取得」。
+ */
+async function planUsage({ loadQuery: load = loadQuery, options = {}, cwd, timeoutMs = 20000 } = {}) {
+  const query = await load();
+  let release;
+  const released = new Promise((resolve) => { release = resolve; });
+  async function* prompt() { await released; } // 不送出任何訊息
+  const q = query({ prompt: prompt(), options: { ...options, cwd, settingSources: [], tools: [], maxTurns: 1, persistSession: false } });
+  // 要持續讀取訊息，控制請求才收得到回應；關閉時的錯誤可以忽略
+  const drained = (async () => { for await (const _ of q) { /* 略過 */ } })().catch(() => {});
+  let timer;
+  try {
+    const getUsage = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+    if (typeof getUsage !== 'function') throw new Error('目前的 Claude Code 版本不支援查詢使用量');
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('查詢逾時')), timeoutMs); });
+    return summarizePlanUsage(await Promise.race([getUsage.call(q, { skipBehaviors: true }), timeout]));
+  } finally {
+    clearTimeout(timer);
+    release();
+    q.close();
+    await drained;
+  }
+}
+
+module.exports = { loadQuery, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, planUsage, summarizePlanUsage };

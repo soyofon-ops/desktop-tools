@@ -55,6 +55,14 @@
           <div><div class="row-title">本機 Claude Code</div><div class="row-desc" id="local-status">檢查中…</div></div>
           <button class="btn" id="btn-local-check">重新檢查</button>
         </div>
+        <div class="row" id="row-usage">
+          <div class="usage-main">
+            <div class="row-title">方案使用量<span class="usage-plan" id="usage-plan" hidden></span></div>
+            <div class="row-desc" id="usage-status" role="status"></div>
+            <div class="usage-list" id="usage-list"></div>
+          </div>
+          <button class="btn" id="btn-usage-refresh" hidden>重新整理</button>
+        </div>
         <div class="row" id="row-key">
           <div><div class="row-title">Anthropic API Key</div><div class="row-desc" id="key-status">讀取中…</div></div>
           <span style="display: flex; gap: 6px">
