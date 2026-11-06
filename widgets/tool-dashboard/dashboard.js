@@ -553,6 +553,91 @@ const ATTN_LABEL = { done: '回覆完成', error: '回覆失敗' };
 const agentAttention = new Map();
 const agentPrevState = new Map();
 
+// ---- 吉祥物狀態動畫 ----
+const AGENT_LOOP_MS = 3200; // 循環動畫的最小公倍週期：1.6s 與 3.2s 都能接續
+const AGENT_FX_MS = { run: 320, nod: 360, eyes: 240, flinch: 400 };
+const AGENT_FX_CLASSES = Object.keys(AGENT_FX_MS).map((k) => `fx-${k}`);
+const IDLE_MIN_MS = 9000;
+const IDLE_MAX_MS = 18000;
+const IDLE_SIGNATURE_EVERY = 4; // 每 4 次偶發動作改播一次招牌動作
+const agentPrevMood = new Map();
+/** @type {Map<string, { kind: string, since: number }>} */
+const agentFx = new Map();
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let agentIdleTimer = null;
+let agentIdleCount = 0;
+let agentHoverName = null;
+
+/** 單一表情：失敗 > 等待核准 > 回覆完成 > 回覆中 > 閒置 */
+function agentMood(r, attn) {
+  if (attn && attn.kind === 'error') return 'error';
+  if (r.state === 'waiting') return 'waiting';
+  if (attn && attn.kind === 'done') return 'done';
+  if (r.state === 'running') return 'running';
+  return 'idle';
+}
+
+/** 狀態切換要播的動作；首次渲染與手動停止（回覆中 → 閒置）不播 */
+function agentMoodFx(prev, mood) {
+  if (prev === undefined || prev === mood) return null;
+  if (mood === 'error') return 'flinch';
+  if (mood === 'waiting') return 'eyes';
+  if (mood === 'running') return prev === 'waiting' ? 'nod' : 'run';
+  return null;
+}
+
+function hashName(name) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.codePointAt(0)) | 0;
+  return Math.abs(h);
+}
+
+/** 按鈕會重建、換頁時動畫也會重新開始，所以用負延遲接續進度；已結束的只播一次動作不再補播 */
+function refreshAgentTiming(btn) {
+  const name = btn.dataset.name;
+  const now = Date.now();
+  // 依角色錯開，多個角色同時回覆時才不會動作一致
+  btn.style.setProperty('--loop-delay', `-${(now + hashName(name) * 137) % AGENT_LOOP_MS}ms`);
+  const attn = agentAttention.get(name);
+  if (attn) btn.style.setProperty('--attn-delay', `-${now - attn.since}ms`);
+  btn.classList.remove(...AGENT_FX_CLASSES);
+  const fx = agentFx.get(name);
+  if (!fx) return;
+  const elapsed = now - fx.since;
+  if (elapsed >= AGENT_FX_MS[fx.kind]) {
+    agentFx.delete(name);
+    return;
+  }
+  btn.classList.add(`fx-${fx.kind}`);
+  btn.style.setProperty('--fx-delay', `-${elapsed}ms`);
+}
+
+/** 播放一次閒置動作；同一個 class 要先移除並重排版，動畫才會重新開始 */
+function playAgentMotion(btn, cls) {
+  btn.classList.remove('m-blink-play', 'm-sig');
+  void btn.getBoundingClientRect();
+  btn.classList.add(cls);
+}
+
+function playAgentIdleMotion() {
+  const candidates = [...els.agentsTrack.querySelectorAll('.agent[data-mood="idle"]:not([inert]):not(.dragging)')];
+  if (!candidates.length) return;
+  agentIdleCount += 1;
+  const btn = candidates[Math.floor(Math.random() * candidates.length)];
+  playAgentMotion(btn, agentIdleCount % IDLE_SIGNATURE_EVERY === 0 ? 'm-sig' : 'm-blink-play');
+}
+
+/** 單一計時器；視窗隱藏或開啟減少動態時不排程 */
+function scheduleAgentIdle() {
+  clearTimeout(agentIdleTimer);
+  agentIdleTimer = null;
+  if (document.hidden || reducedMotion.matches) return;
+  agentIdleTimer = setTimeout(() => {
+    playAgentIdleMotion();
+    scheduleAgentIdle();
+  }, IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS));
+}
+
 function clearAttention(name) {
   const cur = agentAttention.get(name);
   if (cur) clearTimeout(cur.timer);
@@ -623,7 +708,9 @@ function goToAgentPage(p) {
   els.agentsNext.hidden = agentPage === agentPageCount() - 1;
   // 被滑出畫面的按鈕不要被 Tab 選到
   [...els.agentsTrack.children].forEach((b, i) => {
+    const wasInert = b.inert;
     b.inert = agentPageOf(i) !== agentPage;
+    if (wasInert && !b.inert && b.dataset.name) refreshAgentTiming(b); // 切回此頁：動畫會重新開始，先對齊進度
   });
   syncAgentArrows();
 }
@@ -662,6 +749,10 @@ function renderAgents() {
   const panel = els.agentsTrack;
   if (agentDrag && agentDrag.started) return; // 拖曳中不重畫，放開後再更新
   panel.textContent = '';
+  const roleNames = new Set(agentState.roles.map((r) => r.name));
+  for (const map of [agentPrevMood, agentFx]) {
+    for (const name of map.keys()) if (!roleNames.has(name)) map.delete(name);
+  }
   for (const r of agentState.roles) {
     const color = (window.AGENT_COLORS[r.color] || window.AGENT_COLORS.blue).hex;
     const mascot = window.MASCOTS[r.mascot] || window.MASCOTS.blob;
@@ -673,15 +764,22 @@ function renderAgents() {
     if (attn) {
       btn.classList.add('attn');
       btn.classList.toggle('attn-error', attn.kind === 'error');
+      btn.classList.toggle('attn-done', attn.kind === 'done');
       btn.classList.toggle('attn-sticky', attn.sticky);
-      // 按鈕每次都會重建，用負的延遲接續動畫進度，避免重播
-      btn.style.setProperty('--attn-delay', `-${Date.now() - attn.since}ms`);
     }
+    const mood = agentMood(r, attn);
+    const fxKind = agentMoodFx(agentPrevMood.get(r.name), mood);
+    if (fxKind) agentFx.set(r.name, { kind: fxKind, since: Date.now() });
+    else if (agentPrevMood.get(r.name) !== mood) agentFx.delete(r.name); // 切到不播動作的表情時，不要接著播舊的
+    agentPrevMood.set(r.name, mood);
+    btn.dataset.mood = mood;
+    // 按鈕每次都會重建，用負的延遲接續動畫進度，避免重播
+    refreshAgentTiming(btn);
     const stateLabel = AGENT_STATE_LABEL[r.state] || (attn && attn.sticky && ATTN_LABEL[attn.kind]);
     const label = stateLabel ? `${r.displayName} · ${stateLabel}` : r.displayName;
     btn.dataset.tip = label;
     btn.setAttribute('aria-label', `${label}（Alt + ←→ 調整順序）`);
-    btn.innerHTML = `${mascot.svg(color, 32)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
+    btn.innerHTML = `${mascot.svg(color, 32, true)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
     btn.addEventListener('click', () => {
       if (agentSuppressClick) return;
       hideTip();
@@ -689,6 +787,18 @@ function renderAgents() {
       agentsApi.call('openChat', r.name);
     });
     bindTip(btn);
+    // 懸停播一次招牌動作。按鈕重建後滑鼠仍在原處也會再次觸發 pointerenter，比對角色名稱避免重播
+    btn.addEventListener('pointerenter', () => {
+      if (agentHoverName === r.name) return;
+      agentHoverName = r.name;
+      if (btn.dataset.mood === 'idle' && !agentDrag && !reducedMotion.matches) playAgentMotion(btn, 'm-sig');
+    });
+    btn.addEventListener('pointerleave', () => {
+      if (agentHoverName === r.name) agentHoverName = null;
+    });
+    btn.addEventListener('focus', () => {
+      if (btn.dataset.mood === 'idle' && btn.matches(':focus-visible') && !reducedMotion.matches) playAgentMotion(btn, 'm-sig');
+    });
     panel.appendChild(btn);
   }
   const add = document.createElement('button');
@@ -903,6 +1013,19 @@ async function initAgents() {
   }
   syncAttention();
   renderAgents();
+  // 閒置動作播完就移除 class，下次才能重播
+  els.agentsTrack.addEventListener('animationend', (e) => {
+    if (e.animationName.startsWith('m-')) {
+      const btn = e.target.closest('.agent');
+      if (btn) btn.classList.remove('m-blink-play', 'm-sig');
+    }
+  });
+  els.agents.addEventListener('pointerleave', () => {
+    agentHoverName = null;
+  });
+  document.addEventListener('visibilitychange', scheduleAgentIdle);
+  reducedMotion.addEventListener('change', scheduleAgentIdle);
+  scheduleAgentIdle();
 }
 
 // ---- 啟動 ----
