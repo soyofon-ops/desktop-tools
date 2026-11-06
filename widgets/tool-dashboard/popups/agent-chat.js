@@ -186,6 +186,15 @@ let streamFrame = 0;
 function onEvent({ name: n, event: ev, cost, model }) {
   if (n !== name) return;
   switch (ev.type) {
+    // 排程開了新對話：清空畫面，接著送出的訊息才不會接在舊對話後面
+    case 'cleared':
+      cancelAnimationFrame(streamFrame); streamFrame = 0;
+      els.messages.textContent = '';
+      streamEl = null;
+      streamText = '';
+      setCost(null);
+      showEmpty();
+      break;
     case 'user': addUser(ev.text); stickToBottom = true; break;
     case 'delta':
       streamText += ev.text;

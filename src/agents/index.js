@@ -8,6 +8,7 @@ const files = require('./agent-files');
 const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
 const { planUsage: fetchPlanUsage } = require('./runtime');
+const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 
 const MAX_ROLES = 4;
 const AUTH_MODES = ['apiKey', 'claudeCode'];
@@ -48,7 +49,7 @@ function setupAgents(deps) {
   const {
     ipcMain, userDataDir, homeDir, safeStorage, fetch, trash, pickFolder,
     openPopup, isAllowedSender, broadcast, loadQuery, buildQueryOptions = () => ({}),
-    getTheme = () => 'dark', openPath = async () => {},
+    getTheme = () => 'dark', openPath = async () => {}, powerMonitor = null,
     localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' })
   } = deps;
   const agentsDir = files.agentsDir(homeDir);
@@ -286,7 +287,8 @@ function setupAgents(deps) {
         model: d.model || '',
         toolGroups: groups,
         extraTools: extra,
-        file: d.file
+        file: d.file,
+        schedule: r.schedule || null
       };
     },
 
@@ -296,7 +298,12 @@ function setupAgents(deps) {
       if (isNew && panel.roles.length >= MAX_ROLES) throw new Error(`最多 ${MAX_ROLES} 個角色`);
       const prev = oldName ? defs.get(oldName) : null;
       // 從現有子代理加入的角色一律保留原檔名與 name，不採用傳入的代號
-      const imported = !!(oldName && panel.roles.find((r) => r.name === oldName)?.imported);
+      const prevRole = oldName ? panel.roles.find((r) => r.name === oldName) : null;
+      const imported = !!prevRole?.imported;
+      // 先驗證排程，格式不對時不要寫入子代理檔案；沒傳入時沿用原本的設定
+      const schedule = p.schedule === undefined
+        ? prevRole?.schedule || null
+        : normalizeSchedule(p.schedule, prevRole?.schedule || null, new Date());
       const tools = groupsToTools(Array.isArray(p.toolGroups) ? p.toolGroups : [], Array.isArray(p.extraTools) ? p.extraTools : []);
       const def = {
         name: imported ? oldName : String(p.name || '').trim(),
@@ -313,7 +320,8 @@ function setupAgents(deps) {
         displayName: String(p.displayName || '').trim() || def.name,
         mascot: MASCOTS.includes(p.mascot) ? p.mascot : hashPick(def.name, MASCOTS),
         cwd: String(p.cwd || '').trim(),
-        ...(imported ? { imported: true } : {})
+        ...(imported ? { imported: true } : {}),
+        ...(schedule ? { schedule } : {})
       };
       if (isNew) {
         panel.roles.push(meta);
@@ -491,9 +499,38 @@ function setupAgents(deps) {
     return api[method](...args);
   });
 
+  // ---- 每日排程 ----
+  /** 觸發一次排程：每次開新對話再送出訊息，無法執行時把原因寫進聊天紀錄 */
+  function runSchedule(role, now) {
+    // 先記錄再送出，就算送出途中程式結束，當天也不會重複觸發
+    role.schedule = { ...role.schedule, lastRun: localDate(now) };
+    savePanel();
+    const s = sessions.get(role.name);
+    // 無法執行時保留舊對話：開新對話會中斷進行中的工作，也會清掉還用得到的紀錄
+    if (!canChat()) {
+      onEvent(role.name, { type: 'error', message: '排程未執行：請先設定 API Key，或改用本機 Claude Code 登入' });
+      return;
+    }
+    if (s && (s.state !== 'idle' || s.starting)) {
+      onEvent(role.name, { type: 'error', message: '排程未執行：這個角色正在回覆或等待核准，今天不會再補跑' });
+      return;
+    }
+    api.newChat(role.name);
+    broadcast('agents:event', { name: role.name, event: { type: 'cleared' } });
+    api.send(role.name, role.schedule.message).catch((err) => console.error('排程送出失敗', err));
+  }
+
+  function runDueSchedules(now = new Date()) {
+    for (const role of panel.roles) if (isDue(role.schedule, now)) runSchedule(role, now);
+  }
+
+  const stopScheduler = startScheduler({ check: () => runDueSchedules(), powerMonitor });
+
   return {
     api,
+    runDueSchedules,
     dispose() {
+      stopScheduler();
       stopWatch();
       for (const [name] of sessions) closeSession(name);
     }

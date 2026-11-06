@@ -25,7 +25,7 @@
   .row-model { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .field label, .label { font-size: 11px; color: var(--muted); }
-  input[type="text"], textarea, select {
+  input[type="text"], input[type="time"], textarea, select {
     width: 100%; min-width: 0; padding: 0 9px; height: 30px; border-radius: 6px; border: 1px solid var(--stroke);
     background: var(--surface); color: var(--text); font: inherit; outline: none;
   }
@@ -51,6 +51,11 @@
   .tchip { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--stroke); color: var(--muted); font-size: 12px; }
   .tchip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
   .hint { font-size: 11px; color: var(--muted); }
+  .schedule-head { display: flex; align-items: center; gap: 10px; min-height: 30px; }
+  .schedule-head .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .schedule-head input[type="time"] { width: 140px; }
+  body[data-theme="dark"] input[type="time"] { color-scheme: dark; }
+  body[data-theme="light"] input[type="time"] { color-scheme: light; }
   .file { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 6px; background: var(--surface); font-size: 11px; color: var(--muted); min-width: 0; }
   .file span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .import { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--stroke); }
@@ -135,6 +140,18 @@
           <button class="tchip" data-g="web" aria-pressed="true">網路</button>
         </div>
         <span class="hint" id="tools-hint">全部選取時也能使用 MCP 與其他子代理；修改檔案、執行指令前會在聊天視窗詢問你</span>
+      </div>
+
+      <div class="field">
+        <div class="schedule-head">
+          <label class="check" for="schedule-enabled"><input type="checkbox" id="schedule-enabled">每日排程</label>
+          <input type="time" id="schedule-time" value="09:00" aria-label="排程時間" hidden>
+        </div>
+        <div class="field" id="schedule-body" hidden>
+          <label for="schedule-message">時間到時送出的訊息</label>
+          <textarea id="schedule-message" rows="2" placeholder="例如：整理今天的待辦事項"></textarea>
+          <span class="hint">程式開著才會觸發，錯過時間會在當天補跑一次。每次都開新對話，這個角色的舊對話紀錄會被清除；要改檔案或執行指令時，會等你核准才繼續。</span>
+        </div>
       </div>
 
       <div class="file" id="file">

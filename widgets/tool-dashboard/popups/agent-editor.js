@@ -13,7 +13,8 @@ let agentsDir = '';
 
 const f = {
   displayName: $('displayName'), name: $('name'), description: $('description'), prompt: $('prompt'),
-  model: $('model'), cwd: $('cwd'), err: $('err'), fileText: $('file-text')
+  model: $('model'), cwd: $('cwd'), err: $('err'), fileText: $('file-text'),
+  scheduleEnabled: $('schedule-enabled'), scheduleTime: $('schedule-time'), scheduleMessage: $('schedule-message')
 };
 
 function hex() { return (window.AGENT_COLORS[color] || window.AGENT_COLORS.blue).hex; }
@@ -83,6 +84,13 @@ function setModelValue(v) {
   f.model.value = v || '';
 }
 
+function renderSchedule() {
+  const on = f.scheduleEnabled.checked;
+  f.scheduleTime.hidden = !on;
+  $('schedule-body').hidden = !on;
+}
+f.scheduleEnabled.addEventListener('change', renderSchedule);
+
 function fill(role) {
   editing = role ? role.name : null;
   const imported = !!(role && role.imported);
@@ -107,6 +115,11 @@ function fill(role) {
   const groups = role ? role.toolGroups : ['read', 'search', 'edit', 'bash', 'web'];
   extraTools = role ? role.extraTools || [] : [];
   document.querySelectorAll('.tchip').forEach((c) => c.setAttribute('aria-pressed', String(groups.includes(c.dataset.g))));
+  const schedule = role && role.schedule;
+  f.scheduleEnabled.checked = !!(schedule && schedule.enabled);
+  f.scheduleTime.value = schedule ? schedule.time : '09:00';
+  f.scheduleMessage.value = schedule ? schedule.message : '';
+  renderSchedule();
   f.err.textContent = '';
   renderLook();
   updateFile();
@@ -118,6 +131,8 @@ function validate() {
   if (!importedFile && !NAME_RE.test(n)) return [f.name, '代號只能用英文小寫、數字和 -，並以字母開頭'];
   if (!f.description.value.trim()) return [f.description, '請填寫「何時使用」'];
   if (!f.prompt.value.trim()) return [f.prompt, '請填寫角色說明'];
+  if (f.scheduleEnabled.checked && !f.scheduleTime.value) return [f.scheduleTime, '請設定排程時間'];
+  if (f.scheduleEnabled.checked && !f.scheduleMessage.value.trim()) return [f.scheduleMessage, '請填寫排程要送出的訊息'];
   return null;
 }
 
@@ -137,7 +152,8 @@ async function save() {
       model: f.model.value,
       cwd: f.cwd.value.trim(),
       toolGroups: [...document.querySelectorAll('.tchip[aria-pressed="true"]')].map((c) => c.dataset.g),
-      extraTools
+      extraTools,
+      schedule: { enabled: f.scheduleEnabled.checked, time: f.scheduleTime.value, message: f.scheduleMessage.value.trim() }
     });
     window.popup.close();
   } catch (err) {

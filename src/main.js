@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, safeStorage, net } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, safeStorage, net, powerMonitor } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -447,6 +447,7 @@ function startAgents() {
       if (channel === 'agents:changed' && settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send(channel, payload);
     },
     openPath: (dir) => shell.openPath(dir),
+    powerMonitor,
     getTheme: () => (config.widget('tool-dashboard').settings || {}).theme || 'dark',
     loadQuery: agentsRuntime.loadQuery,
     buildQueryOptions: (auth) => agentsRuntime.buildQueryOptions(auth, { appVersion: app.getVersion() }),
