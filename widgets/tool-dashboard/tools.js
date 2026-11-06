@@ -259,9 +259,13 @@ window.TOOLS = [
       } catch {
         return { ok: false, message: '剪貼簿不是有效的 JSON' };
       }
-      const formatted = formatJSON(text);
-      await window.widget.copyText(formatted);
-      return { ok: true, message: formatted === raw ? 'JSON 已是格式化狀態' : '已格式化並複製到剪貼簿' };
+      await window.widget.openPopup({
+        page: 'popups/json-viewer.html',
+        width: 520,
+        height: 640,
+        data: { text: formatJSON(text), theme: document.body.dataset.theme }
+      });
+      return { ok: true, silent: true }; // 結果顯示在彈出視窗，剪貼簿等使用者按複製才變更
     }
   },
   {

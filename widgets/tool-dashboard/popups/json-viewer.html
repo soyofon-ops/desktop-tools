@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>JSON 格式化</title>
+<link rel="stylesheet" href="popup.css">
+<style>
+  .tree {
+    flex: none; padding: 8px 12px 8px 6px; border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke);
+    font-size: 12px; line-height: 1.55; user-select: text; cursor: text;
+  }
+  /* 縮排用真實空白（選取文字複製時才保留縮排），負的 text-indent 讓換行的文字對齊內容 */
+  .row {
+    position: relative; white-space: pre-wrap; overflow-wrap: anywhere;
+    padding-left: calc(16px + var(--d) * 2ch); text-indent: calc(var(--d) * -2ch);
+  }
+  .toggle {
+    position: absolute; top: 0; left: calc(var(--d) * 2ch); width: 16px; height: 1.55em; padding: 0; text-indent: 0;
+    display: flex; align-items: center; justify-content: center; color: var(--muted); border-radius: 3px; user-select: none;
+  }
+  .toggle:hover { color: var(--accent); background: var(--hover); }
+  .toggle svg { transition: transform 0.1s; }
+  .node.collapsed > .row > .toggle svg { transform: rotate(-90deg); }
+  /* 收合時隱藏子節點與結尾括號，改顯示摘要；摘要不列入文字選取 */
+  .node.collapsed > .kids, .node.collapsed > .closer { display: none; }
+  .sum { display: none; color: var(--muted); user-select: none; }
+  .node.collapsed > .row > .sum { display: inline; }
+  .tools { display: flex; gap: 6px; flex: 1; align-items: center; min-width: 0; }
+  .copy:disabled { opacity: 0.45; cursor: default; color: var(--muted); background: none; border-color: var(--stroke); }
+  .notice { font-size: 11px; color: var(--muted); margin: 0 14px 8px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body data-theme="dark">
+  <div class="panel">
+    <div class="titlebar">
+      <h1>JSON 格式化</h1>
+      <div class="chips"><span class="chip mono" id="lines"></span></div>
+      <button class="close" id="close" aria-label="關閉" title="關閉（Esc）">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <p class="notice" id="notice" hidden></p>
+
+    <div class="content" id="content">
+      <div class="tree mono" id="tree"></div>
+    </div>
+
+    <div class="footer">
+      <div class="tools">
+        <button class="copy" id="expand-all">全部展開</button>
+        <button class="copy" id="collapse-all">全部收合</button>
+      </div>
+      <button class="copy" id="copy" title="複製完整 JSON（包含已收合的內容）"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製</span></button>
+    </div>
+  </div>
+  <script src="json-viewer.js"></script>
+</body>
+</html>
