@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<title>系統列圖示預覽</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1120px; padding: 24px; background: #fff; color: #1a1a1a; font: 13px/1.5 -apple-system, "PingFang TC", "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  h2 { font-size: 14px; margin: 20px 0 8px; }
+  p.note { color: #555; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 6px 8px; text-align: left; font-weight: 500; vertical-align: middle; }
+  th { color: #555; font-size: 12px; }
+  .bar { display: flex; align-items: center; gap: 12px; height: 28px; padding: 0 12px; border-radius: 4px; width: fit-content; min-width: 150px; font-size: 12px; }
+  .mac-light { background: #ececec; color: #000; }
+  .mac-dark { background: #2a2a2c; color: #fff; }
+  .mac-wall { background: linear-gradient(90deg, #6d4bb0, #c2577e); color: #fff; }
+  .mac-wall-light { background: linear-gradient(90deg, #f1d3a8, #a8d8e8); color: #000; }
+  .win-light { background: #f3f3f3; color: #000; height: 40px; }
+  .win-dark { background: #1c1c1c; color: #fff; height: 40px; }
+  .pix { image-rendering: pixelated; }
+  /* 模擬 macOS 對 Template 圖的染色 */
+  .on-dark { filter: invert(1); }
+  .zoom { display: inline-block; padding: 8px; border-radius: 4px; margin-right: 8px; }
+  img { display: block; }
+</style>
+<h1>系統列圖示設計稿</h1>
+<p class="note">1x 欄為實際顯示大小。放大欄為最近鄰放大，可看出每個像素。</p>
+
+<h2>macOS 選單列：單色 Template（16pt，系統依明暗自動染色）</h2>
+<table id="mac"></table>
+
+<h2>Windows 系統匣：彩色（1:1 實體像素，100% 的 16px 在這張 2x 截圖裡看起來會偏小）</h2>
+<table id="win"></table>
+
+<h2>像素放大檢視</h2>
+<div id="zoom"></div>
+
+<script>
+  const q = id => document.getElementById(id);
+  const macBars = [['mac-light', '淺色'], ['mac-wall-light', '淺色桌布'], ['mac-dark', '深色'], ['mac-wall', '深色桌布']];
+  const macRows = [
+    ['現況 tray.png（縮到 16pt）', '../../assets/tray.png', false, 16],
+    ['A 切面細縫', 'output/mac/a-slit/trayTemplate@2x.png', true, 16],
+    ['B 切面鏤空', 'output/mac/b-notch/trayTemplate@2x.png', true, 16]
+  ];
+  q('mac').innerHTML = '<tr><th>方案</th>' + macBars.map(b => `<th>${b[1]}</th>`).join('') + '</tr>' +
+    macRows.map(([label, src, tpl, s]) => `<tr><td>${label}</td>` + macBars.map(([c]) => {
+      const dark = c === 'mac-dark' || c === 'mac-wall';
+      const cls = tpl && dark ? 'on-dark' : '';
+      return `<td><div class="bar ${c}"><span>12:30</span><img class="${cls}" src="${src}" width="${s}" height="${s}"><span>Wi-Fi</span></div></td>`;
+    }).join('') + '</tr>').join('');
+
+  const winBars = [['win-light', '淺色工作列'], ['win-dark', '深色工作列']];
+  const dpis = [[16, '100%'], [20, '125%'], [24, '150%'], [32, '200%']];
+  const winRows = [['現況 tray.png', s => '../../assets/tray.png'],
+    ['A 深藍描邊', s => `output/win/a-outlined/tray-${s}.png`],
+    ['B 深色底板', s => `output/win/b-tile/tray-${s}.png`]];
+  q('win').innerHTML = '<tr><th>方案</th>' + winBars.map(b => `<th>${b[1]}（DPI ${dpis.map(d => d[1]).join(' / ')}）</th>`).join('') + '</tr>' +
+    winRows.map(([label, src]) => `<tr><td>${label}</td>` + winBars.map(([c]) =>
+      `<td><div class="bar ${c}">` + dpis.map(([s]) => `<img class="pix" src="${src(s)}" width="${s / 2}" height="${s / 2}" style="width:${s / 2}px;height:${s / 2}px">`).join('') + '</div></td>').join('') + '</tr>').join('');
+
+  const zooms = [
+    ['Mac A @1x', 'output/mac/a-slit/trayTemplate.png', 16],
+    ['Mac A @2x', 'output/mac/a-slit/trayTemplate@2x.png', 32],
+    ['Mac B @1x', 'output/mac/b-notch/trayTemplate.png', 16],
+    ['Mac B @2x', 'output/mac/b-notch/trayTemplate@2x.png', 32],
+    ['Win A 16', 'output/win/a-outlined/tray-16.png', 16],
+    ['Win A 32', 'output/win/a-outlined/tray-32.png', 32],
+    ['Win B 16', 'output/win/b-tile/tray-16.png', 16],
+    ['Win B 32', 'output/win/b-tile/tray-32.png', 32]
+  ];
+  q('zoom').innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:12px">' + zooms.map(([l, src, s]) => `
+    <div><div style="font-size:12px;color:#555;margin-bottom:4px">${l}</div>
+      <div style="display:flex;gap:4px">
+        <div style="background:#f3f3f3;padding:6px"><img class="pix" src="${src}" style="width:${96}px;height:${96}px"></div>
+        <div style="background:#1c1c1c;padding:6px"><img class="pix ${l.startsWith('Mac') ? 'on-dark' : ''}" src="${src}" style="width:${96}px;height:${96}px"></div>
+      </div></div>`).join('') + '</div>';
+</script>
+</html>

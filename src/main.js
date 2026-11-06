@@ -522,9 +522,10 @@ function rebuildTrayMenu() {
 }
 
 function createTray() {
-  let icon = nativeImage.createFromPath(path.join(ROOT, 'assets', 'tray.png'));
-  // macOS 選單列圖示為 16pt（32px 圖當 @2x 用），Windows 系統匣維持原尺寸
-  if (process.platform === 'darwin') icon = icon.resize({ width: 16, height: 16 });
+  // macOS：檔名含 Template 會由系統依選單列明暗染色，@2x 由 Electron 依檔名自動載入
+  // Windows：.ico 內含多個尺寸，由系統依 DPI 挑選
+  const file = process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.ico';
+  const icon = nativeImage.createFromPath(path.join(ROOT, 'assets', file));
   tray = new Tray(icon);
   tray.setToolTip('Soyofon Desktop Tools');
   if (process.platform !== 'darwin') tray.on('click', () => tray.popUpContextMenu());
