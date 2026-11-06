@@ -10,6 +10,15 @@ async function loadQuery() {
   return queryFn;
 }
 
+/** 建立自訂工具需要的 SDK 函式；zod 也用 import 載入，才會和 SDK 用同一份 */
+async function loadToolKit() {
+  const [{ createSdkMcpServer, tool }, { z }] = await Promise.all([
+    import('@anthropic-ai/claude-agent-sdk'),
+    import('zod')
+  ]);
+  return { createSdkMcpServer, tool, z };
+}
+
 /**
  * SDK 附帶的 Claude Code 原生執行檔（@anthropic-ai/claude-agent-sdk-<平台>-<架構>）。
  * 打包後位在 app.asar 內無法執行，改指向 app.asar.unpacked（見 package.json 的 asarUnpack）。
@@ -139,4 +148,4 @@ async function planUsage({ loadQuery: load = loadQuery, options = {}, cwd, timeo
   }
 }
 
-module.exports = { loadQuery, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, planUsage, summarizePlanUsage };
+module.exports = { loadQuery, loadToolKit, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, planUsage, summarizePlanUsage };

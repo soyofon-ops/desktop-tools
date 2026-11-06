@@ -7,7 +7,8 @@ const path = require('path');
 const files = require('./agent-files');
 const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
-const { planUsage: fetchPlanUsage } = require('./runtime');
+const { planUsage: fetchPlanUsage, loadToolKit: defaultLoadToolKit } = require('./runtime');
+const { HANDOFF_TOOL, routingPrompt, handoffMessage, createHandoffs, handoffServer } = require('./handoff');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 
 const AUTH_MODES = ['apiKey', 'claudeCode'];
@@ -47,7 +48,7 @@ function groupsToTools(groups, extra = []) {
 function setupAgents(deps) {
   const {
     ipcMain, userDataDir, homeDir, safeStorage, fetch, trash, pickFolder,
-    openPopup, isAllowedSender, broadcast, loadQuery, buildQueryOptions = () => ({}),
+    openPopup, isAllowedSender, broadcast, loadQuery, loadToolKit = defaultLoadToolKit, buildQueryOptions = () => ({}),
     getTheme = () => 'dark', openPath = async () => {}, powerMonitor = null,
     localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' })
   } = deps;
@@ -60,13 +61,15 @@ function setupAgents(deps) {
 
   // ---- 面板資料 ----
   // authMode：'apiKey'（預設）或 'claudeCode'（沿用本機 Claude Code 的登入）
-  let panel = { roles: [], sessions: {}, authMode: 'apiKey' };
+  // handoffs：還沒送達的轉派工作
+  let panel = { roles: [], sessions: {}, authMode: 'apiKey', handoffs: [] };
   try {
     const raw = JSON.parse(fs.readFileSync(panelFile, 'utf8'));
     panel = {
       roles: Array.isArray(raw.roles) ? raw.roles : [],
       sessions: raw.sessions || {},
-      authMode: AUTH_MODES.includes(raw.authMode) ? raw.authMode : 'apiKey'
+      authMode: AUTH_MODES.includes(raw.authMode) ? raw.authMode : 'apiKey',
+      handoffs: Array.isArray(raw.handoffs) ? raw.handoffs : []
     };
   } catch { /* 第一次使用 */ }
 
@@ -94,6 +97,44 @@ function setupAgents(deps) {
   const sessions = new Map();   // name → AgentSession
   const histories = new Map();  // name → { items, cost, model }
   let chatOpenFor = null;       // 聊天視窗目前顯示的角色
+  let disposed = false;
+
+  function isBusy(name) {
+    const s = sessions.get(name);
+    return !!s && (s.state !== 'idle' || !!s.starting);
+  }
+
+  const handoffs = createHandoffs({
+    roles: () => panel.roles.map((r) => ({ name: r.name, displayName: r.displayName || r.name })),
+    queue: panel.handoffs,
+    save: savePanel,
+    canDeliver: (name) => !disposed && canChat() && !isBusy(name),
+    deliver: async (item) => {
+      historyOf(item.to).items.push({ role: 'handoff', from: item.fromDisplay, text: item.task });
+      saveHistory(item.to);
+      broadcast('agents:event', { name: item.to, event: { type: 'handoff', from: item.fromDisplay, text: item.task } });
+      try {
+        await sessionFor(item.to).send(handoffMessage(item));
+      } catch (err) {
+        onEvent(item.to, { type: 'error', message: String((err && err.message) || err).slice(0, 300) });
+      }
+    },
+    reportDropped: (from, message) => onEvent(from, { type: 'error', message })
+  });
+
+  /**
+   * 每次啟動程序時重新產生，新增或改名的角色才會出現。
+   * 分工規則放在 MCP instructions：resume 會沿用舊的系統提示，附加在角色說明裡對既有對話無效（SDK 0.3.318 實測）。
+   */
+  async function handoffServers(name) {
+    const views = panel.roles.map((r) => ({
+      name: r.name,
+      displayName: r.displayName || r.name,
+      description: defs.get(r.name)?.description || ''
+    }));
+    const routing = routingPrompt(views.find((r) => r.name === name), views.filter((r) => r.name !== name));
+    return { 'role-handoff': handoffServer(await loadToolKit(), name, handoffs, routing) };
+  }
 
   function historyOf(name) {
     if (!histories.has(name)) {
@@ -169,6 +210,8 @@ function setupAgents(deps) {
         break;
       case 'state':
         broadcastState();
+        // 等呼叫端做完（例如關閉對話後從 sessions 移除）再送，才不會送進已關閉的 session
+        if (ev.state === 'idle') setImmediate(() => handoffs.drain(name));
         break;
       default:
         break;
@@ -187,9 +230,11 @@ function setupAgents(deps) {
         ...files.sdkExtras(def),
         description: def.description,
         prompt: def.prompt,
-        ...(def.tools ? { tools: def.tools } : {}),
+        // 限定工具的角色也要看得到轉派工具（只在執行時加入，不寫回子代理檔案）
+        ...(def.tools ? { tools: [...def.tools, HANDOFF_TOOL] } : {}),
         ...(def.model ? { model: def.model } : {})
       },
+      mcpServers: () => handoffServers(name),
       cwd: role.cwd && fs.existsSync(role.cwd) ? role.cwd : homeDir,
       resume: panel.sessions[name] || null,
       loadQuery,
@@ -265,6 +310,7 @@ function setupAgents(deps) {
       // 定義改了：關閉程序，下次傳訊息用新定義接續
       for (const [name, s] of sessions) if (s.state === 'idle') { s.close(); sessions.delete(name); }
       broadcastState();
+      handoffs.drainAll(); // 檔案被刪掉的角色，它的佇列要清掉
     }
   });
 
@@ -326,6 +372,7 @@ function setupAgents(deps) {
         const i = panel.roles.findIndex((r) => r.name === oldName);
         if (i >= 0) panel.roles[i] = meta;
         if (oldName !== def.name) {
+          handoffs.rename(oldName, def.name);
           panel.sessions[def.name] = panel.sessions[oldName];
           delete panel.sessions[oldName];
           const h = histories.get(oldName);
@@ -338,6 +385,7 @@ function setupAgents(deps) {
       savePanel();
       reloadDefs();
       broadcastState();
+      handoffs.drainAll(); // 改代號時關閉的是舊名稱的 session，佇列要用新名稱再送一次
       return { name: def.name, file };
     },
 
@@ -360,9 +408,11 @@ function setupAgents(deps) {
       delete panel.sessions[name];
       histories.delete(name);
       try { fs.unlinkSync(chatFile(name)); } catch { /* 沒有紀錄 */ }
+      handoffs.resetChain(name);
       savePanel();
       reloadDefs();
       broadcastState();
+      handoffs.drainAll(); // 轉派給這個角色、還沒送達的工作要取消
       return true;
     },
 
@@ -387,6 +437,7 @@ function setupAgents(deps) {
       if (!canChat()) throw new Error('請先設定 API Key，或改用本機 Claude Code 登入');
       const t = String(text || '').trim();
       if (!t) return false;
+      handoffs.resetChain(name); // 使用者直接交辦的是新工作，轉派鏈重新計算
       historyOf(name).items.push({ role: 'user', text: t });
       broadcast('agents:event', { name, event: { type: 'user', text: t } });
       try {
@@ -405,6 +456,7 @@ function setupAgents(deps) {
 
     newChat(name) {
       closeSession(name);
+      handoffs.resetChain(name);
       delete panel.sessions[name];
       histories.set(name, { items: [], cost: null, model: null });
       saveHistory(name);
@@ -427,6 +479,7 @@ function setupAgents(deps) {
       savePanel();
       for (const [name] of sessions) closeSession(name); // 換一份憑證重新啟動，對話會接續
       broadcastState();
+      handoffs.drainAll();
       return true;
     },
 
@@ -452,6 +505,7 @@ function setupAgents(deps) {
       keys.set(k);
       for (const [name] of sessions) closeSession(name); // 用新金鑰重新啟動
       broadcastState();
+      handoffs.drainAll();
       return { ok: true };
     },
 
@@ -521,10 +575,13 @@ function setupAgents(deps) {
 
   const stopScheduler = startScheduler({ check: () => runDueSchedules(), powerMonitor });
 
+  handoffs.drainAll(); // 上次關閉程式前還沒送達的轉派
+
   return {
     api,
     runDueSchedules,
     dispose() {
+      disposed = true; // 下面關閉對話時，不要再送出佇列中的工作
       stopScheduler();
       stopWatch();
       for (const [name] of sessions) closeSession(name);

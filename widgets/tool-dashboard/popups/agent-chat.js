@@ -87,6 +87,19 @@ function addUser(text) {
   els.messages.appendChild(div);
 }
 
+function addHandoff(from, text) {
+  clearEmpty();
+  const div = document.createElement('div');
+  div.className = 'msg-handoff';
+  const label = document.createElement('div');
+  label.className = 'handoff-from';
+  label.textContent = `來自「${from}」的轉派`;
+  const body = document.createElement('div');
+  body.textContent = text;
+  div.append(label, body);
+  els.messages.appendChild(div);
+}
+
 function aiBubble(text, streaming) {
   clearEmpty();
   const div = document.createElement('div');
@@ -167,6 +180,7 @@ function renderHistory(h) {
   streamText = '';
   for (const it of h.items) {
     if (it.role === 'user') addUser(it.text);
+    else if (it.role === 'handoff') addHandoff(it.from, it.text);
     else if (it.role === 'assistant') {
       const el = aiBubble(it.text, !!it.streaming);
       if (it.streaming) { streamEl = el; streamText = it.text; }
@@ -196,6 +210,7 @@ function onEvent({ name: n, event: ev, cost, model }) {
       showEmpty();
       break;
     case 'user': addUser(ev.text); stickToBottom = true; break;
+    case 'handoff': endStream(); addHandoff(ev.from, ev.text); stickToBottom = true; break;
     case 'delta':
       streamText += ev.text;
       if (!streamEl) streamEl = aiBubble(streamText, true);

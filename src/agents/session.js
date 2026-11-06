@@ -1,6 +1,7 @@
 // 一個角色的對話 session：用 Agent SDK 的串流輸入模式保持 Claude Code 程序，持續送入訊息。
 // 把 SDK 訊息轉成聊天視窗用的事件，並把工具核准交給聊天視窗決定。
 const path = require('path');
+const { HANDOFF_TOOL } = require('./handoff');
 
 const IDLE_CLOSE_MS = 10 * 60 * 1000; // 閒置 10 分鐘關閉程序，下次傳訊息時用 resume 接續
 
@@ -29,6 +30,7 @@ function toolSummary(name, input = {}, cwd = '') {
     case 'Agent':
     case 'Task': return { verb: '交給子代理', detail: cut(input.description || input.subagent_type, 80) };
     case 'TodoWrite': return { verb: '更新待辦清單', detail: '' };
+    case HANDOFF_TOOL: return { verb: '轉派給', detail: cut(input.role, 60) };
     default: return { verb: '使用工具', detail: name };
   }
 }
@@ -62,6 +64,7 @@ class AgentSession {
    * @param {string|null} o.resume 要接續的 session id
    * @param {() => Promise<Function>} o.loadQuery 取得 SDK 的 query 函式
    * @param {() => object} o.buildOptions 額外的 query 選項（env、執行檔路徑等）
+   * @param {() => Promise<object>} o.mcpServers 這個角色專用的 MCP 伺服器（每次啟動程序都要新建）
    * @param {(event: object) => void} o.emit 對聊天視窗送出事件
    */
   constructor(o) {
@@ -72,6 +75,7 @@ class AgentSession {
       sessionId: o.resume || null,
       loadQuery: o.loadQuery,
       buildOptions: o.buildOptions || (() => ({})),
+      mcpServers: o.mcpServers || (async () => ({})),
       emit: o.emit
     });
     this.query = null;
@@ -107,6 +111,7 @@ class AgentSession {
 
   async start() {
     const query = await this.loadQuery();
+    const mcpServers = await this.mcpServers();
     // 以另一個名稱傳入同一份定義：~/.claude/agents 有同名檔案時，Claude Code 會忽略主執行緒的 agent 設定
     // （Claude Code 2.1.318 實測），換個名稱就能確定套用角色說明、工具與模型
     // 從現有子代理加入的角色會保留原名，可能含空白或符號，這裡只取安全字元；合法代號不受影響
@@ -114,10 +119,14 @@ class AgentSession {
     const options = {
       agent: agentKey,
       agents: { [agentKey]: this.definition },
+      mcpServers,
       settingSources: ['user', 'project', 'local'],    // 完整 Claude Code：載入 ~/.claude 與專案的設定、CLAUDE.md、技能、MCP
       cwd: this.cwd,
       includePartialMessages: true,
-      canUseTool: (toolName, input, opts) => this.askPermission(toolName, input, opts),
+      // 轉派不需要核准；目標角色要動手時仍會在自己的聊天視窗核准
+      canUseTool: async (toolName, input, opts) => (toolName === HANDOFF_TOOL
+        ? { behavior: 'allow', updatedInput: input }
+        : this.askPermission(toolName, input, opts)),
       ...(this.sessionId ? { resume: this.sessionId } : {}),
       ...this.buildOptions()
     };
