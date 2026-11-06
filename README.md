@@ -13,7 +13,7 @@
 | 小工具    | 說明                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
 | FF14 時鐘 | 顯示艾奧傑亞時間（ET）與本地時間（LT），點擊切換主要顯示的時間，選擇會被記住 |
-| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁；上方的角色面板可和最多 4 個 Claude Code 角色快速聊天 |
+| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁；上方的角色面板可和 Claude Code 角色快速聊天，每頁 4 格（含新增按鈕），超過時自動分頁 |
 
 ## 開發與打包
 
@@ -96,7 +96,7 @@ await window.widget.openPopup({ page: 'popups/jwt.html', width: 456, height: 560
 //   window.popup.close()
 
 // Claude 角色（工具儀表盤用）：方法見 src/agents/index.js 的 api
-await window.widget.agents.call('state');               // { roles, max, hasKey, existing, agentsDir }
+await window.widget.agents.call('state');               // { roles, hasKey, existing, agentsDir }
 window.widget.agents.onChanged((state) => { ... });     // 角色或狀態改變
 window.widget.agents.onEvent(({ name, event }) => { ... }); // 對話事件（串流文字、工具、核准…）
 
@@ -156,7 +156,7 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 
 ### Claude 角色（快速聊天）
 
-儀表盤上方的圓角面板放最多 4 個 Claude Code 角色，每個角色是一隻有自己顏色的吉祥物。
+儀表盤上方的圓角面板放 Claude Code 角色，每個角色是一隻有自己顏色的吉祥物。角色數量沒有上限，每頁 4 格（含「＋」），超過時用左右箭頭換頁；其他頁有角色需要注意時，箭頭上會出現提示點。
 
 - **新增**：點「＋」填寫顯示名稱、代號、何時使用、角色說明、模型、工作資料夾與可用工具。也可以直接加入在終端機建立過的子代理
 - **角色就是 Claude Code 子代理**：存成 `~/.claude/agents/<代號>.md`，終端機的 Claude Code 也能叫用；在終端機修改檔案，面板會自動更新。顯示名稱、吉祥物、工作資料夾與順序另外存在 `<設定資料夾>/agents.json`
@@ -166,7 +166,7 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 - **狀態**：回覆中時吉祥物有光圈、等你核准時右上角有橘點、聊天視窗開著時下方有小點
 - **移除**：在編輯角色按「移除角色」，對話紀錄會刪除；在 App 內新增的角色，子代理檔案移到資源回收筒，從現有子代理加入的角色則保留檔案，之後可以再加回來
 - 從現有子代理加入的角色會保留原檔名與 `name`，代號欄不能修改；儲存時會把表單內容寫回原檔
-- 拖曳角色可調整順序（或 Alt + ←→）
+- 拖曳角色可調整順序（或 Alt + ←→）；拖到箭頭上停留可換頁
 
 **登入**：第一次聊天時選擇，之後可在「設定 → 一般 → Claude 角色 → 登入方式」切換（切換後對話會接續）。
 

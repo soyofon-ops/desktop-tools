@@ -28,6 +28,9 @@ const els = {
   body: document.body,
   dash: document.getElementById('dash'),
   agents: document.getElementById('agents'),
+  agentsTrack: document.getElementById('agents-track'),
+  agentsPrev: document.getElementById('agents-prev'),
+  agentsNext: document.getElementById('agents-next'),
   viewport: document.querySelector('.viewport'),
   track: document.getElementById('track'),
   prev: document.getElementById('prev'),
@@ -533,9 +536,15 @@ els.theme.addEventListener('click', () => {
 // ---- Claude 角色面板 ----
 const AGENT_STATE_LABEL = { running: '回覆中', waiting: '等待核准' };
 const agentsApi = window.widget && window.widget.agents;
-let agentState = { roles: [], max: 4 };
+const AGENTS_PER_PAGE = 4; // 含新增按鈕
+const AGENT_PAGE_STEP = 256; // 一頁 236（4 × 44 + 3 × 20）+ 頁間距 20
+let agentState = { roles: [] };
+let agentPage = 0;
 let agentDrag = null;
 let agentSuppressClick = false;
+let agentSliding = false;
+let agentArrowDir = 0;
+let agentArrowTimer = null;
 
 // ---- 角色需要注意的提示（只有動畫，沒有聲音）----
 const ATTN_ONCE_MS = 3200; // 聊天視窗開著時的提示長度：動畫 1.6s × 2 次
@@ -598,8 +607,51 @@ function onAgentEvent({ name, event }) {
   renderAgents();
 }
 
+// ---- 角色面板分頁 ----
+function agentPageCount() {
+  return Math.max(1, Math.ceil((agentState.roles.length + 1) / AGENTS_PER_PAGE)); // +1 是新增按鈕
+}
+
+function agentPageOf(index) {
+  return Math.floor(index / AGENTS_PER_PAGE);
+}
+
+function goToAgentPage(p) {
+  agentPage = Math.max(0, Math.min(agentPageCount() - 1, p));
+  els.agentsTrack.style.transform = `translateX(-${agentPage * AGENT_PAGE_STEP}px)`;
+  els.agentsPrev.hidden = agentPage === 0;
+  els.agentsNext.hidden = agentPage === agentPageCount() - 1;
+  // 被滑出畫面的按鈕不要被 Tab 選到
+  [...els.agentsTrack.children].forEach((b, i) => {
+    b.inert = agentPageOf(i) !== agentPage;
+  });
+  syncAgentArrows();
+}
+
+/** 其他頁有角色等待核准，或有還沒看的回覆結果時，在該方向的箭頭上提示 */
+function syncAgentArrows() {
+  for (const [el, label, onSide] of [
+    [els.agentsPrev, '上一頁', (p) => p < agentPage],
+    [els.agentsNext, '下一頁', (p) => p > agentPage],
+  ]) {
+    const alerts = agentState.roles
+      .filter((r, i) => onSide(agentPageOf(i)))
+      .map((r) => ({ state: r.state, attn: agentAttention.get(r.name) }))
+      .filter(({ state, attn }) => state === 'waiting' || (attn && attn.sticky));
+    const text = alerts.length ? `${label}（${alerts.length} 個角色需要注意）` : label;
+    el.classList.toggle('has-alert', alerts.length > 0);
+    el.classList.toggle('alert-error', alerts.some(({ attn }) => attn && attn.kind === 'error'));
+    el.dataset.tip = text;
+    el.setAttribute('aria-label', text);
+  }
+}
+
+[els.agentsPrev, els.agentsNext].forEach(bindTip);
+els.agentsPrev.addEventListener('click', () => goToAgentPage(agentPage - 1));
+els.agentsNext.addEventListener('click', () => goToAgentPage(agentPage + 1));
+
 function renderAgents() {
-  const panel = els.agents;
+  const panel = els.agentsTrack;
   if (agentDrag && agentDrag.started) return; // 拖曳中不重畫，放開後再更新
   panel.textContent = '';
   for (const r of agentState.roles) {
@@ -631,20 +683,19 @@ function renderAgents() {
     bindTip(btn);
     panel.appendChild(btn);
   }
-  if (agentState.roles.length < (agentState.max || 4)) {
-    const add = document.createElement('button');
-    add.className = 'agent-add';
-    add.dataset.tip = '新增角色';
-    add.setAttribute('aria-label', '新增角色');
-    add.innerHTML =
-      '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
-    add.addEventListener('click', () => {
-      hideTip();
-      agentsApi.call('openEditor', null);
-    });
-    bindTip(add);
-    panel.appendChild(add);
-  }
+  const add = document.createElement('button');
+  add.className = 'agent-add';
+  add.dataset.tip = '新增角色';
+  add.setAttribute('aria-label', '新增角色');
+  add.innerHTML =
+    '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+  add.addEventListener('click', () => {
+    hideTip();
+    agentsApi.call('openEditor', null);
+  });
+  bindTip(add);
+  panel.appendChild(add);
+  goToAgentPage(agentPage); // 角色變少時退回最後一頁，並更新箭頭與 Tab 範圍
   // 提示顯示中的按鈕重畫後補回提示內容（例如狀態從「回覆中」變成閒置）
   if (hovered && !hovered.isConnected && hovered.dataset.name) {
     const again = panel.querySelector(`.agent[data-name="${CSS.escape(hovered.dataset.name)}"]`);
@@ -668,8 +719,44 @@ els.agents.addEventListener('pointerdown', (e) => {
     offX: e.clientX - r.left,
     started: false,
     ghost: null,
+    origPage: agentPage,
   };
 });
+
+/** 指標停在哪個箭頭上：-1 上一頁、1 下一頁、0 都不是 */
+function overAgentArrow(x, y) {
+  for (const [el, dir] of [
+    [els.agentsPrev, -1],
+    [els.agentsNext, 1],
+  ]) {
+    if (el.hidden) continue;
+    const r = el.getBoundingClientRect();
+    if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 6 && y <= r.bottom + 6) return dir;
+  }
+  return 0;
+}
+
+function setAgentArrowHover(dir) {
+  clearTimeout(agentArrowTimer);
+  els.agentsPrev.classList.toggle('drag-over', dir === -1);
+  els.agentsNext.classList.toggle('drag-over', dir === 1);
+  agentArrowDir = dir;
+  if (!dir) return;
+  const step = () => {
+    goToAgentPage(agentPage + agentArrowDir);
+    agentSliding = true;
+    setTimeout(() => {
+      agentSliding = false;
+    }, SLIDE_MS);
+    // 換到第一頁／最後一頁時箭頭會隱藏
+    if ((agentArrowDir === -1 && els.agentsPrev.hidden) || (agentArrowDir === 1 && els.agentsNext.hidden)) {
+      setAgentArrowHover(0);
+      return;
+    }
+    agentArrowTimer = setTimeout(step, ARROW_REPEAT);
+  };
+  agentArrowTimer = setTimeout(step, ARROW_DELAY);
+}
 
 window.addEventListener('pointermove', (e) => {
   const d = agentDrag;
@@ -694,14 +781,19 @@ window.addEventListener('pointermove', (e) => {
   const x = Math.max(4, Math.min(p.width - 48, e.clientX - p.left - d.offX));
   d.ghost.style.left = `${x}px`;
   d.ghost.style.top = '9px';
+  // 拖到箭頭上：停留後換頁
+  const dir = overAgentArrow(e.clientX, e.clientY);
+  if (dir !== agentArrowDir) setAgentArrowHover(dir);
+  d.ghost.classList.toggle('over-arrow', !!dir);
+  if (dir || agentSliding) return;
   // 依指標位置決定插入點，其他按鈕即時讓位
-  const items = [...els.agents.querySelectorAll('.agent:not(.agent-ghost)')];
+  const items = [...els.agentsTrack.querySelectorAll('.agent')];
   const before = snapshotAgents(items);
   const target = items.find((b) => b !== d.btn && e.clientX < b.getBoundingClientRect().left + 22);
   const current = items.indexOf(d.btn);
   const targetIdx = target ? items.indexOf(target) : items.length;
   if (targetIdx !== current && targetIdx !== current + 1) {
-    els.agents.insertBefore(d.btn, target || els.agents.querySelector('.agent-add') || d.ghost);
+    els.agentsTrack.insertBefore(d.btn, target || els.agentsTrack.querySelector('.agent-add'));
     flipAgents(items, before);
   }
 });
@@ -726,6 +818,7 @@ function endAgentDrag(commit) {
   const d = agentDrag;
   agentDrag = null;
   if (!d || !d.started) return;
+  setAgentArrowHover(0);
   try {
     els.agents.releasePointerCapture(d.pointerId);
   } catch {
@@ -734,7 +827,9 @@ function endAgentDrag(commit) {
   document.documentElement.classList.remove('tool-dragging');
   d.ghost.remove();
   d.btn.classList.remove('dragging');
-  const names = [...els.agents.querySelectorAll('.agent')].map((b) => b.dataset.name);
+  const names = [...els.agentsTrack.querySelectorAll('.agent')].map((b) => b.dataset.name);
+  // 放開後停在角色所在的頁；取消時回到原本那頁
+  agentPage = commit ? agentPageOf(names.indexOf(d.name)) : d.origPage;
   agentSuppressClick = true;
   setTimeout(() => {
     agentSuppressClick = false;
@@ -770,8 +865,9 @@ els.agents.addEventListener('keydown', (e) => {
   [names[i], names[j]] = [names[j], names[i]];
   const byName = new Map(agentState.roles.map((r) => [r.name, r]));
   agentState.roles = names.map((n) => byName.get(n));
+  agentPage = agentPageOf(j); // 跨頁時畫面跟著角色走
   renderAgents();
-  els.agents.querySelector(`.agent[data-name="${CSS.escape(btn.dataset.name)}"]`).focus();
+  els.agentsTrack.querySelector(`.agent[data-name="${CSS.escape(btn.dataset.name)}"]`).focus();
   agentsApi.call('reorder', names);
 });
 
@@ -781,6 +877,12 @@ async function initAgents() {
     return;
   }
   agentsApi.onChanged((s) => {
+    // 新增角色後跳到它所在的頁
+    if (s.roles.length > agentState.roles.length) {
+      const known = new Set(agentState.roles.map((r) => r.name));
+      const added = s.roles.findIndex((r) => !known.has(r.name));
+      if (added >= 0) agentPage = agentPageOf(added);
+    }
     agentState = s;
     syncAttention();
     renderAgents();

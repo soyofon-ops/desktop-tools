@@ -50,15 +50,23 @@
   .stage { position: absolute; top: 8px; left: 8px; width: 280px; }
   .dash { position: relative; width: 280px; height: 104px; }
 
-  /* Claude 角色面板：梯形上方，最多 4 個 44px 吉祥物按鈕 */
+  /* Claude 角色面板：梯形上方，每頁 4 個 44px 吉祥物按鈕（含新增按鈕） */
   .agents {
-    position: relative; height: 64px; margin-bottom: 6px; box-sizing: border-box; padding: 0 21px;
-    display: flex; align-items: center; gap: 20px;
+    position: relative; height: 64px; margin-bottom: 6px; box-sizing: border-box;
     background: var(--shape-fill); border: 1px solid var(--shape-stroke); border-radius: 12px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); transition: background 0.2s, border-color 0.2s;
   }
   .agents[hidden] { display: none; }
   .agents::before { content: ""; position: absolute; top: -1px; left: 106px; width: 68px; height: 2px; border-radius: 2px; background: var(--accent); }
+  /* 左右外擴 10px、上下外擴 6px 讓光暈與提示動畫不被切掉；頁與頁之間隔 20px，鄰頁不會露出來 */
+  .agents-viewport { position: absolute; top: -6px; bottom: -6px; left: 11px; width: 256px; padding-left: 10px; overflow: hidden; }
+  .agents-track { display: flex; align-items: center; gap: 20px; width: max-content; height: 100%; transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .agents .arrow { top: 17px; width: 16px; z-index: 2; }
+  .agents .arrow.prev { left: 2px; }
+  .agents .arrow.next { right: 2px; }
+  /* 其他頁有角色需要注意 */
+  .agents .arrow.has-alert::after { content: ""; position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+  .agents .arrow.alert-error::after { background: var(--danger); }
   .agent {
     position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -103,6 +111,7 @@
   .agent-add:hover { border-color: var(--accent); color: var(--accent); }
   .agent.dragging { opacity: 0.35; }
   .agent-ghost { position: absolute; z-index: 5; pointer-events: none; transform: scale(1.1); box-shadow: 0 0 0 1px var(--c), 0 6px 12px rgba(0, 0, 0, 0.35) !important; animation: none !important; }
+  .agent-ghost.over-arrow { opacity: 0.45; transition: opacity 0.12s; }
   html.widget-dragging .dash { cursor: grabbing; }
 
   /* 倒梯形：斜邊每往下 5px 內縮 1px，下方通知沿用同一斜率 */
@@ -218,7 +227,15 @@
 </head>
 <body data-theme="dark">
   <div class="stage">
-    <div class="agents" id="agents" role="toolbar" aria-label="Claude 角色"></div>
+    <div class="agents" id="agents" role="toolbar" aria-label="Claude 角色">
+      <button class="arrow prev" id="agents-prev" hidden>
+        <svg class="icon" width="12" height="12" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="agents-viewport"><div class="agents-track" id="agents-track"></div></div>
+      <button class="arrow next" id="agents-next" hidden>
+        <svg class="icon" width="12" height="12" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
     <div class="dash" id="dash">
       <svg class="shape" width="280" height="104" viewBox="0 0 280 104" aria-hidden="true">
         <path class="body" d="M 8 0 L 272 0 Q 280 0 278.43 7.85 L 260.77 96.15 Q 259.2 104 251.2 104 L 28.8 104 Q 20.8 104 19.23 96.15 L 1.57 7.85 Q 0 0 8 0 Z"/>

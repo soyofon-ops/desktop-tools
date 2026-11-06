@@ -1,6 +1,6 @@
 // Claude Code 角色：儀表盤的角色面板、快速聊天與角色編輯
 // - 角色本體是 ~/.claude/agents/<name>.md 子代理（終端機的 Claude Code 也讀得到）
-// - 面板資訊（顯示名稱、吉祥物、工作資料夾、順序）存在 <設定資料夾>/agents.json，最多 4 個
+// - 面板資訊（顯示名稱、吉祥物、工作資料夾、順序）存在 <設定資料夾>/agents.json
 // - 每個角色各自一個對話 session，對話紀錄存在 <設定資料夾>/agent-chats/<name>.json
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +10,6 @@ const { createKeyStore, looksLikeKey } = require('./api-key');
 const { planUsage: fetchPlanUsage } = require('./runtime');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 
-const MAX_ROLES = 4;
 const AUTH_MODES = ['apiKey', 'claudeCode'];
 const MAX_HISTORY = 300;
 const MASCOTS = ['blob', 'robot', 'cat', 'ghost', 'drop', 'cloud', 'owl', 'bear'];
@@ -226,7 +225,6 @@ function setupAgents(deps) {
   function stateView() {
     return {
       roles: panel.roles.map(roleView),
-      max: MAX_ROLES,
       hasKey: !!keys.get(),
       authMode: panel.authMode,
       ready: canChat(),
@@ -295,7 +293,6 @@ function setupAgents(deps) {
     async saveRole(p = {}) {
       const oldName = p.oldName || null;
       const isNew = !oldName;
-      if (isNew && panel.roles.length >= MAX_ROLES) throw new Error(`最多 ${MAX_ROLES} 個角色`);
       const prev = oldName ? defs.get(oldName) : null;
       // 從現有子代理加入的角色一律保留原檔名與 name，不採用傳入的代號
       const prevRole = oldName ? panel.roles.find((r) => r.name === oldName) : null;
@@ -345,7 +342,6 @@ function setupAgents(deps) {
     },
 
     addExisting(name) {
-      if (panel.roles.length >= MAX_ROLES) throw new Error(`最多 ${MAX_ROLES} 個角色`);
       if (!defs.has(name)) throw new Error('找不到這個子代理');
       if (!panel.roles.some((r) => r.name === name)) {
         panel.roles.push({ name, displayName: name, mascot: hashPick(name, MASCOTS), cwd: '', imported: true });
@@ -487,7 +483,6 @@ function setupAgents(deps) {
     },
 
     openEditor(name = null) {
-      if (!name && panel.roles.length >= MAX_ROLES) return false;
       openPopup({ page: 'popups/agent-editor.html', width: 440, height: 720, data: { name, theme: getTheme() } });
       return true;
     }
@@ -537,4 +532,4 @@ function setupAgents(deps) {
   };
 }
 
-module.exports = { setupAgents, toolsToGroups, groupsToTools, MAX_ROLES };
+module.exports = { setupAgents, toolsToGroups, groupsToTools };
