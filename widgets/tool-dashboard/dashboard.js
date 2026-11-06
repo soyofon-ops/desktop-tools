@@ -628,8 +628,10 @@ function goToAgentPage(p) {
   syncAgentArrows();
 }
 
-/** 其他頁有角色等待核准，或有還沒看的回覆結果時，在該方向的箭頭上提示 */
+/** 其他頁有角色等待核准，或有還沒看的回覆結果時，在該方向的箭頭與面板上提示 */
 function syncAgentArrows() {
+  let alerting = false;
+  let danger = false;
   for (const [el, label, onSide] of [
     [els.agentsPrev, '上一頁', (p) => p < agentPage],
     [els.agentsNext, '下一頁', (p) => p > agentPage],
@@ -638,12 +640,18 @@ function syncAgentArrows() {
       .filter((r, i) => onSide(agentPageOf(i)))
       .map((r) => ({ state: r.state, attn: agentAttention.get(r.name) }))
       .filter(({ state, attn }) => state === 'waiting' || (attn && attn.sticky));
+    const failed = alerts.some(({ attn }) => attn && attn.kind === 'error');
     const text = alerts.length ? `${label}（${alerts.length} 個角色需要注意）` : label;
     el.classList.toggle('has-alert', alerts.length > 0);
-    el.classList.toggle('alert-error', alerts.some(({ attn }) => attn && attn.kind === 'error'));
+    el.classList.toggle('alert-error', failed);
     el.dataset.tip = text;
     el.setAttribute('aria-label', text);
+    alerting = alerting || alerts.length > 0;
+    danger = danger || failed;
   }
+  // 面板不會重建，只切換 class，角色狀態更新時動畫不會重播
+  els.agents.classList.toggle('alerting', alerting);
+  els.agents.classList.toggle('alert-danger', danger);
 }
 
 [els.agentsPrev, els.agentsNext].forEach(bindTip);

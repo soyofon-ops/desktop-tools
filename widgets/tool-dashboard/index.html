@@ -21,6 +21,11 @@
     --warn: #f2994a;
     --danger: #f0524f;
     --ok-bg: #1c2e2b;
+    --alert: #ffd21f;
+    --alert-ink: #1a1400;
+    --alert-glow: rgba(255, 210, 31, 0.62);
+    --alert-danger-ink: #2a0605;
+    --alert-danger-glow: rgba(240, 82, 79, 0.62);
   }
   body[data-theme="light"] {
     --shape-fill: rgba(247, 249, 252, 0.95);
@@ -37,6 +42,11 @@
     --warn: #c2620f;
     --danger: #d32f2f;
     --ok-bg: #ddf1ec;
+    --alert: #ffc800;
+    --alert-ink: #3a2c00;
+    --alert-glow: rgba(214, 160, 0, 0.62);
+    --alert-danger-ink: #4a0b0b;
+    --alert-danger-glow: rgba(211, 47, 47, 0.55);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -67,6 +77,39 @@
   /* 其他頁有角色需要注意 */
   .agents .arrow.has-alert::after { content: ""; position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
   .agents .arrow.alert-error::after { background: var(--danger); }
+  /* 其他頁有提示：左上角三條漫畫線，外框呼吸。回覆失敗優先顯示紅色 */
+  .agents.alert-danger { --alert: var(--danger); --alert-ink: var(--alert-danger-ink); --alert-glow: var(--alert-danger-glow); }
+  /* 外框與光暈放在獨立圖層，只動畫 opacity，提示久放時不用每格重繪陰影 */
+  .agents.alerting::after {
+    content: ""; position: absolute; inset: -1px; z-index: 1; pointer-events: none;
+    border: 1px solid var(--alert); border-radius: 12px; box-shadow: 0 0 8px 1px var(--alert-glow);
+    animation: agents-breathe 3.2s ease-in-out infinite; /* 週期是線條的兩倍 */
+  }
+  @keyframes agents-breathe {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+  /* SVG 座標等於視窗座標（面板距視窗邊緣 8px + 1px 邊框），線條跨在圓角上才不會被視窗裁切 */
+  .agents-alert-lines { display: none; position: absolute; left: -9px; top: -9px; width: 44px; height: 44px; overflow: visible; pointer-events: none; z-index: 3; }
+  .agents.alerting .agents-alert-lines { display: block; }
+  .agents-alert-lines g { transform-origin: 26px 26px; animation: agents-lines-pop 1.6s linear infinite; }
+  .agents-alert-lines g:nth-child(2) { animation-delay: 0.05s; }
+  .agents-alert-lines g:nth-child(3) { animation-delay: 0.1s; }
+  .agents-alert-lines line { stroke-linecap: round; }
+  .agents-alert-lines .ink { stroke: var(--alert-ink); stroke-width: 5; }
+  .agents-alert-lines .fill { stroke: var(--alert); stroke-width: 3; }
+  @keyframes agents-lines-pop {
+    0% { transform: scale(0.45); opacity: 0; }
+    6% { transform: scale(1.12); opacity: 1; animation-timing-function: ease-out; }
+    14%, 34% { transform: scale(1); }
+    40% { transform: scale(1.08); }
+    48% { transform: scale(1); }
+    74% { transform: scale(1); opacity: 1; }
+    84%, 100% { transform: scale(1); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .agents.alerting::after, .agents-alert-lines g { animation: none; }
+  }
   .agent {
     position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -235,6 +278,11 @@
       <button class="arrow next" id="agents-next" hidden>
         <svg class="icon" width="12" height="12" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
       </button>
+      <svg class="agents-alert-lines" viewBox="0 0 44 44" aria-hidden="true">
+        <g><line class="ink" x1="13.33" y1="23.07" x2="5.54" y2="21.27"/><line class="fill" x1="13.33" y1="23.07" x2="5.54" y2="21.27"/></g>
+        <g><line class="ink" x1="14.69" y1="14.69" x2="5.49" y2="5.49"/><line class="fill" x1="14.69" y1="14.69" x2="5.49" y2="5.49"/></g>
+        <g><line class="ink" x1="23.07" y1="13.33" x2="21.27" y2="5.54"/><line class="fill" x1="23.07" y1="13.33" x2="21.27" y2="5.54"/></g>
+      </svg>
     </div>
     <div class="dash" id="dash">
       <svg class="shape" width="280" height="104" viewBox="0 0 280 104" aria-hidden="true">
