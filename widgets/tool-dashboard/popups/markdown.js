@@ -34,13 +34,30 @@
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+      // 開頭可用 3 個以上的反引號，語言後可接屬性；標題列只顯示語言
+      const fence = line.match(/^\s*(`{3,})\s*([^`]*)$/);
       if (fence) {
         flushPara(); flushList();
+        const lang = fence[2].trim().split(/\s+/)[0];
+        const isMarkdown = /^(markdown|md)$/i.test(lang);
         const body = [];
+        let depth = 0; // Markdown 區塊內尚未結束的巢狀 fence 數
         i++;
-        while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) body.push(lines[i++]);
-        out.push(`<div class="code-block"><div class="code-head"><span>${esc(fence[1] || '')}</span><button class="code-copy" type="button">複製</button></div><pre><code>${esc(body.join('\n'))}</code></pre></div>`);
+        for (; i < lines.length; i++) {
+          const inner = lines[i].match(/^\s*(`{3,})\s*([^`]*)$/);
+          // 反引號少於開頭的 fence 視為內容
+          if (inner && inner[1].length >= fence[1].length) {
+            if (inner[2].trim()) {
+              if (isMarkdown) depth++;
+            } else if (depth > 0) {
+              depth--;
+            } else {
+              break;
+            }
+          }
+          body.push(lines[i]);
+        }
+        out.push(`<div class="code-block${isMarkdown ? ' code-wrap' : ''}"><div class="code-head"><span>${esc(lang)}</span><button class="code-copy" type="button">複製</button></div><pre><code>${esc(body.join('\n'))}</code></pre></div>`);
         continue;
       }
       const h = line.match(/^(#{1,6})\s+(.*)$/);
