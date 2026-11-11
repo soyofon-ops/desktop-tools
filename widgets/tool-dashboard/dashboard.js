@@ -548,10 +548,20 @@ let agentArrowTimer = null;
 
 // ---- 角色需要注意的提示（只有動畫，沒有聲音）----
 const ATTN_ONCE_MS = 3200; // 聊天視窗開著時的提示長度：動畫 1.6s × 2 次
-const ATTN_LABEL = { done: '回覆完成', error: '回覆失敗' };
-/** @type {Map<string, { kind: 'waiting'|'done'|'error', since: number, sticky: boolean, timer: any }>} */
+const ATTN_LABEL = { done: '回覆完成', ask: '等你確認', error: '回覆失敗' };
+/** @type {Map<string, { kind: 'waiting'|'done'|'ask'|'error', since: number, sticky: boolean, timer: any }>} */
 const agentAttention = new Map();
 const agentPrevState = new Map();
+/** 每個角色最後一則回覆文字，回覆完成時用來判斷是否在請使用者確認 */
+const agentLastText = new Map();
+// 只看最後一行：結尾是問號，或含有請使用者回覆的字眼（關鍵字判斷，可能誤判）
+const ASK_PATTERN = /[？?]\s*$|確認|同意|請回覆|要不要|是否/;
+
+/** 回覆最後一行是否在請使用者確認 */
+function isAskingUser(text) {
+  const lines = String(text || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  return lines.length > 0 && ASK_PATTERN.test(lines[lines.length - 1]);
+}
 
 // ---- 吉祥物狀態動畫 ----
 const AGENT_LOOP_MS = 3200; // 循環動畫的最小公倍週期：1.6s 與 3.2s 都能接續
@@ -572,7 +582,7 @@ let agentHoverName = null;
 function agentMood(r, attn) {
   if (attn && attn.kind === 'error') return 'error';
   if (r.state === 'waiting') return 'waiting';
-  if (attn && attn.kind === 'done') return 'done';
+  if (attn && (attn.kind === 'done' || attn.kind === 'ask')) return 'done';
   if (r.state === 'running') return 'running';
   return 'idle';
 }
@@ -663,6 +673,7 @@ function setAttention(name, kind) {
 function syncAttention() {
   const names = new Set(agentState.roles.map((r) => r.name));
   for (const name of agentAttention.keys()) if (!names.has(name)) clearAttention(name);
+  for (const name of agentLastText.keys()) if (!names.has(name)) agentLastText.delete(name);
 
   for (const r of agentState.roles) {
     const prev = agentPrevState.get(r.name);
@@ -678,6 +689,10 @@ function syncAttention() {
 
 /** 回覆結束的事件：不看 idle 狀態，因為手動關閉程序時也會變回 idle */
 function onAgentEvent({ name, event }) {
+  if (event.type === 'assistant') {
+    agentLastText.set(name, event.text);
+    return;
+  }
   const failed = event.type === 'error' || (event.type === 'result' && event.isError);
   if (failed) {
     // API 錯誤會先後收到 error 與 result，第二次不要重播動畫
@@ -685,10 +700,11 @@ function onAgentEvent({ name, event }) {
     if (!cur || cur.kind !== 'error') setAttention(name, 'error');
   } else if (event.type === 'result') {
     const cur = agentAttention.get(name);
-    if (!cur || cur.kind !== 'error') setAttention(name, 'done');
+    if (!cur || cur.kind !== 'error') setAttention(name, isAskingUser(agentLastText.get(name)) ? 'ask' : 'done');
   } else {
     return;
   }
+  agentLastText.delete(name); // 這一輪已結束，下一輪重新記錄
   renderAgents();
 }
 
@@ -728,9 +744,12 @@ function syncAgentArrows() {
       .map((r) => ({ state: r.state, attn: agentAttention.get(r.name) }))
       .filter(({ state, attn }) => state === 'waiting' || (attn && attn.sticky));
     const failed = alerts.some(({ attn }) => attn && attn.kind === 'error');
+    // 只有不需確認的完成時，紅點改為綠色；有失敗、等待核准或待確認時維持紅／橘
+    const onlyDone = alerts.length > 0 && alerts.every(({ state, attn }) => state !== 'waiting' && attn && attn.kind === 'done');
     const text = alerts.length ? `${label}（${alerts.length} 個角色需要注意）` : label;
     el.classList.toggle('has-alert', alerts.length > 0);
     el.classList.toggle('alert-error', failed);
+    el.classList.toggle('alert-ok', onlyDone);
     el.dataset.tip = text;
     el.setAttribute('aria-label', text);
     alerting = alerting || alerts.length > 0;
@@ -764,7 +783,8 @@ function renderAgents() {
     if (attn) {
       btn.classList.add('attn');
       btn.classList.toggle('attn-error', attn.kind === 'error');
-      btn.classList.toggle('attn-done', attn.kind === 'done');
+      btn.classList.toggle('attn-done', attn.kind === 'done' || attn.kind === 'ask');
+      btn.classList.toggle('attn-ok', attn.kind === 'done'); // 不需確認的完成改為綠色
       btn.classList.toggle('attn-sticky', attn.sticky);
     }
     const mood = agentMood(r, attn);

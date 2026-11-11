@@ -19,6 +19,7 @@
     --muted: #9aa3b2;
     --text: #e6e9ee;
     --warn: #f2994a;
+    --ok: #4cc96b;
     --danger: #f0524f;
     --ok-bg: #1c2e2b;
     --alert: #ffd21f;
@@ -40,6 +41,7 @@
     --muted: #5b6575;
     --text: #1b1f26;
     --warn: #c2620f;
+    --ok: #1f8a3d;
     --danger: #d32f2f;
     --ok-bg: #ddf1ec;
     --alert: #ffc800;
@@ -76,6 +78,7 @@
   .agents .arrow.next { right: 2px; }
   /* 其他頁有角色需要注意 */
   .agents .arrow.has-alert::after { content: ""; position: absolute; top: 1px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+  .agents .arrow.alert-ok::after { background: var(--ok); }
   .agents .arrow.alert-error::after { background: var(--danger); }
   /* 其他頁有提示：左上角三條漫畫線，外框呼吸。回覆失敗優先顯示紅色 */
   .agents.alert-danger { --alert: var(--danger); --alert-ink: var(--alert-danger-ink); --alert-glow: var(--alert-danger-glow); }
@@ -135,7 +138,7 @@
   }
   .agent .badge { display: none; position: absolute; top: -2px; right: -2px; width: 13px; height: 13px; box-sizing: border-box; border-radius: 50%; background: var(--warn); border: 2px solid var(--shape-fill); }
   .agent.waiting .badge { display: block; }
-  /* 需要注意：等待回覆、回覆完成為橘色，回覆失敗為紅色。用 translate 彈跳，不與拖曳讓位的 transform 衝突 */
+  /* 需要注意：等待核准、回覆完成但要使用者確認為橘色，回覆完成為綠色，回覆失敗為紅色。用 translate 彈跳，不與拖曳讓位的 transform 衝突 */
   .agent.attn {
     --attn: var(--warn);
     border-color: var(--attn); background: color-mix(in srgb, var(--attn) 18%, transparent);
@@ -147,6 +150,7 @@
   }
   /* 回覆完成：彈跳 2 次就停，光圈持續到看過為止 */
   .agent.attn-done { animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) 2, agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite; }
+  .agent.attn-ok { --attn: var(--ok); }
   .agent.attn:not(.attn-sticky) { animation-iteration-count: 2; } /* 聊天視窗開著時只提示一下，總長對應 ATTN_ONCE_MS */
   .agent.attn-sticky .badge { display: block; background: var(--attn); }
   @keyframes agent-bounce {
