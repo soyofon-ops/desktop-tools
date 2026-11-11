@@ -249,7 +249,9 @@ function setupAgents(deps) {
       resume: panel.sessions[name] || null,
       loadQuery,
       buildOptions: () => buildQueryOptions({ mode: panel.authMode, apiKey: keys.get() }),
-      emit: (ev) => onEvent(name, ev)
+      emit: (ev) => onEvent(name, ev),
+      // 每次核准時重新查，切換後不必重開對話
+      isAutoApprove: () => !!panel.roles.find((r) => r.name === name)?.autoApprove
     });
     sessions.set(name, s);
     return s;
@@ -273,6 +275,7 @@ function setupAgents(deps) {
       imported: !!r.imported,
       model: d.model || null,
       state: s ? s.state : 'idle',
+      autoApprove: !!r.autoApprove,
       open: chatOpenFor === r.name
     };
   }
@@ -409,6 +412,8 @@ function setupAgents(deps) {
         mascot: MASCOTS.includes(p.mascot) ? p.mascot : hashPick(def.name, MASCOTS),
         cwd: String(p.cwd || '').trim(),
         ...(imported ? { imported: true } : {}),
+        // 沒傳入時沿用原本的設定
+        ...((p.autoApprove === undefined ? prevRole?.autoApprove : p.autoApprove) ? { autoApprove: true } : {}),
         ...(schedule ? { schedule } : {})
       };
       if (isNew) {
@@ -508,6 +513,17 @@ function setupAgents(deps) {
       savePanel();
       broadcastState();
       return true;
+    },
+
+    /** 切換「不要再詢問」：立即生效，已顯示的核准卡片仍需手動處理 */
+    setAutoApprove(name, on) {
+      const r = panel.roles.find((x) => x.name === name);
+      if (!r) throw new Error('找不到這個角色');
+      if (on) r.autoApprove = true;
+      else delete r.autoApprove;
+      savePanel();
+      broadcastState();
+      return !!r.autoApprove;
     },
 
     answer(name, id, decision) {

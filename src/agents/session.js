@@ -66,6 +66,7 @@ class AgentSession {
    * @param {() => object} o.buildOptions 額外的 query 選項（env、執行檔路徑等）
    * @param {() => Promise<object>} o.mcpServers 這個角色專用的 MCP 伺服器（每次啟動程序都要新建）
    * @param {(event: object) => void} o.emit 對聊天視窗送出事件
+   * @param {() => boolean} [o.isAutoApprove] 是否開啟「不要再詢問」（每次核准時讀取，切換後立即生效）
    */
   constructor(o) {
     Object.assign(this, {
@@ -76,7 +77,8 @@ class AgentSession {
       loadQuery: o.loadQuery,
       buildOptions: o.buildOptions || (() => ({})),
       mcpServers: o.mcpServers || (async () => ({})),
-      emit: o.emit
+      emit: o.emit,
+      isAutoApprove: o.isAutoApprove || (() => false)
     });
     this.query = null;
     this.queue = [];
@@ -124,7 +126,7 @@ class AgentSession {
       cwd: this.cwd,
       includePartialMessages: true,
       // 轉派不需要核准；目標角色要動手時仍會在自己的聊天視窗核准
-      canUseTool: async (toolName, input, opts) => (toolName === HANDOFF_TOOL
+      canUseTool: async (toolName, input, opts) => (toolName === HANDOFF_TOOL || this.shouldAutoApprove(opts)
         ? { behavior: 'allow', updatedInput: input }
         : this.askPermission(toolName, input, opts)),
       ...(this.sessionId ? { resume: this.sessionId } : {}),
@@ -218,6 +220,17 @@ class AgentSession {
     }
     this.setState('running');
     this.push({ type: 'user', message: { role: 'user', content: String(text) }, parent_tool_use_id: null });
+  }
+
+  /**
+   * 「不要再詢問」開啟時直接允許，但以下情況仍要詢問：
+   * - settings.json 的 permissions.ask 規則要求詢問（matchedAskRule）
+   * - SDK 標記不能一鍵核准的安全檢查（defaultToNo）
+   * settings.json 的 deny 規則在呼叫 canUseTool 之前就會擋下，不受影響。
+   */
+  shouldAutoApprove(opts = {}) {
+    if (!this.isAutoApprove()) return false;
+    return !opts.matchedAskRule && !opts.defaultToNo;
   }
 
   askPermission(toolName, input, opts = {}) {

@@ -124,6 +124,11 @@
   .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--stroke); }
   .keyform .lead.small { font-size: 11px; margin-top: -8px; }
   .lock { display: flex; gap: 6px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+  /* 「不要再詢問」開啟：背景改暗紅色，提醒這個對話不會再詢問核准 */
+  body.auto-approve { --panel: rgba(58, 16, 22, 0.97); --surface: #4a1c23; --hover: #5a2229; --stroke: #6e2f37; }
+  body.auto-approve[data-theme="light"] { --panel: rgba(250, 228, 230, 0.98); --surface: #f5d3d7; --hover: #efc4c9; --stroke: #dca3aa; }
+  .auto-chip { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; color: #ff8a93; border: 1px solid #ff8a93; }
+  body[data-theme="light"] .auto-chip { color: #b4232f; border-color: #b4232f; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -132,7 +137,7 @@
     <div class="titlebar">
       <span class="avatar" id="avatar" aria-hidden="true"></span>
       <div class="who">
-        <div class="who-top"><h1 id="title">Claude 角色</h1><span class="chip mono" id="model" hidden></span></div>
+        <div class="who-top"><h1 id="title">Claude 角色</h1><span class="chip mono" id="model" hidden></span><span class="auto-chip" id="auto-chip" title="不要再詢問：修改檔案、執行指令不會等你核准" hidden>免詢問</span></div>
         <div class="cwd" id="cwd" hidden>
           <svg class="icon" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
           <span class="mono" id="cwd-text"></span>
@@ -181,7 +186,7 @@
         <button class="icon-btn send" id="send" title="送出（Enter）" aria-label="送出"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
         <button class="icon-btn stop" id="stop" title="停止回覆" aria-label="停止回覆" hidden><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
       </div>
-      <div class="foot"><span>Enter 送出 · Shift + Enter 換行</span><span id="cost"></span></div>
+      <div class="foot"><span>Enter 送出 · Shift + Enter 換行 · <span id="auto-key">Ctrl + Shift + A</span> 免詢問</span><span id="cost"></span></div>
     </div>
   </div>
   <script src="../mascots.js"></script>

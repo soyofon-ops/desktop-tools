@@ -36,6 +36,16 @@ function renderHeader() {
   els.cwd.hidden = !role.cwd;
   els.cwdText.textContent = role.cwd;
   els.cwd.title = role.cwd;
+  renderAutoApprove();
+}
+
+/** 「不要再詢問」：背景改暗紅色並顯示標籤，空白對話的說明一併更新 */
+function renderAutoApprove() {
+  const on = !!(role && role.autoApprove);
+  document.body.classList.toggle('auto-approve', on);
+  $('auto-chip').hidden = !on;
+  const empty = els.messages.querySelector('.empty');
+  if (empty) { empty.remove(); showEmpty(); }
 }
 
 function setModel(model) {
@@ -71,7 +81,7 @@ function showEmpty() {
   if (els.messages.children.length) return;
   const color = role ? (window.AGENT_COLORS[role.color] || window.AGENT_COLORS.blue).hex : '#6ea8fe';
   const m = role ? (window.MASCOTS[role.mascot] || window.MASCOTS.blob) : window.MASCOTS.blob;
-  els.messages.innerHTML = `<div class="empty">${m.svg(color, 56)}<div>${role ? esc(role.displayName) : ''}準備好了<br>可以修改檔案、執行指令，動手前會先問你</div></div>`;
+  els.messages.innerHTML = `<div class="empty">${m.svg(color, 56)}<div>${role ? esc(role.displayName) : ''}準備好了<br>${role && role.autoApprove ? '已開啟免詢問，修改檔案、執行指令不會先問你' : '可以修改檔案、執行指令，動手前會先問你'}</div></div>`;
 }
 
 function clearEmpty() {
@@ -333,6 +343,19 @@ $('confirm-ok').addEventListener('click', async () => {
 });
 els.edit.addEventListener('click', () => window.agents.call('openEditor', name));
 els.close.addEventListener('click', () => window.popup.close());
+// Ctrl + Shift + A（macOS 為 ⌘ + Shift + A）切換「不要再詢問」
+const IS_MAC = /Mac/i.test(navigator.platform || navigator.userAgent);
+$('auto-key').textContent = IS_MAC ? '⌘ + Shift + A' : 'Ctrl + Shift + A';
+window.addEventListener('keydown', async (e) => {
+  if (e.code !== 'KeyA' || !e.shiftKey || e.altKey || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.repeat) return;
+  e.preventDefault();
+  if (!role) return;
+  try {
+    await window.agents.call('setAutoApprove', name, !role.autoApprove); // 結果經由 onChanged 更新畫面
+  } catch (err) {
+    addError(err.message);
+  }
+});
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!els.confirm.hidden) { els.confirm.hidden = true; return; }

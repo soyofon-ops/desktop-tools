@@ -144,13 +144,20 @@
 
       <div class="field">
         <div class="schedule-head">
+          <label class="check" for="auto-approve"><input type="checkbox" id="auto-approve">不要再詢問</label>
+        </div>
+        <span class="hint">勾選後修改檔案、執行指令都直接進行，不再跳出核准；設定檔（settings.json）要求詢問的動作仍會詢問。聊天視窗可用 Ctrl + Shift + A（macOS 為 ⌘ + Shift + A）切換。</span>
+      </div>
+
+      <div class="field">
+        <div class="schedule-head">
           <label class="check" for="schedule-enabled"><input type="checkbox" id="schedule-enabled">每日排程</label>
           <input type="time" id="schedule-time" value="09:00" aria-label="排程時間" hidden>
         </div>
         <div class="field" id="schedule-body" hidden>
           <label for="schedule-message">時間到時送出的訊息</label>
           <textarea id="schedule-message" rows="2" placeholder="例如：整理今天的待辦事項"></textarea>
-          <span class="hint">程式開著才會觸發，錯過時間會在當天補跑一次。每次都開新對話，這個角色的舊對話紀錄會被清除；要改檔案或執行指令時，會等你核准才繼續。</span>
+          <span class="hint">程式開著才會觸發，錯過時間會在當天補跑一次。每次都開新對話，這個角色的舊對話紀錄會被清除；<span id="schedule-approve-hint">要改檔案或執行指令時，會等你核准才繼續。</span></span>
         </div>
       </div>
 

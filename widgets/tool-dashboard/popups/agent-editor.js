@@ -14,7 +14,8 @@ let agentsDir = '';
 const f = {
   displayName: $('displayName'), name: $('name'), description: $('description'), prompt: $('prompt'),
   model: $('model'), cwd: $('cwd'), err: $('err'), fileText: $('file-text'),
-  scheduleEnabled: $('schedule-enabled'), scheduleTime: $('schedule-time'), scheduleMessage: $('schedule-message')
+  scheduleEnabled: $('schedule-enabled'), scheduleTime: $('schedule-time'), scheduleMessage: $('schedule-message'),
+  autoApprove: $('auto-approve')
 };
 
 function hex() { return (window.AGENT_COLORS[color] || window.AGENT_COLORS.blue).hex; }
@@ -91,6 +92,14 @@ function renderSchedule() {
 }
 f.scheduleEnabled.addEventListener('change', renderSchedule);
 
+/** 排程說明依「不要再詢問」顯示會不會等你核准 */
+function renderAutoApprove() {
+  $('schedule-approve-hint').textContent = f.autoApprove.checked
+    ? '已開啟「不要再詢問」，改檔案或執行指令時不會等你核准（設定檔要求詢問的動作除外）。'
+    : '要改檔案或執行指令時，會等你核准才繼續。';
+}
+f.autoApprove.addEventListener('change', renderAutoApprove);
+
 function fill(role) {
   editing = role ? role.name : null;
   const imported = !!(role && role.imported);
@@ -120,6 +129,8 @@ function fill(role) {
   f.scheduleTime.value = schedule ? schedule.time : '09:00';
   f.scheduleMessage.value = schedule ? schedule.message : '';
   renderSchedule();
+  f.autoApprove.checked = !!(role && role.autoApprove);
+  renderAutoApprove();
   f.err.textContent = '';
   renderLook();
   updateFile();
@@ -153,6 +164,7 @@ async function save() {
       cwd: f.cwd.value.trim(),
       toolGroups: [...document.querySelectorAll('.tchip[aria-pressed="true"]')].map((c) => c.dataset.g),
       extraTools,
+      autoApprove: f.autoApprove.checked,
       schedule: { enabled: f.scheduleEnabled.checked, time: f.scheduleTime.value, message: f.scheduleMessage.value.trim() }
     });
     window.popup.close();
