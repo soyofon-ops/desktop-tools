@@ -78,6 +78,7 @@ label.row { cursor: pointer; }
 .row-title { font-weight: 500; }
 .row-desc { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .row-actions { display: flex; align-items: center; gap: 14px; flex: none; }
+.btn-group { display: flex; align-items: center; gap: 6px; flex: none; }
 .row-actions label { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .badge {
   display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 4px; margin-left: 6px;
@@ -276,6 +277,12 @@ th:last-child { z-index: 2; }
 .ref-editor > .hint { font-size: 11px; }
 .warn-text { color: #ffd58f !important; margin-top: 8px; }
 .row-desc.warn { color: #ffd58f; }
+
+/* 本機 Claude Code 登入 */
+.row > .local-main { flex: 1; }
+.local-login { margin-top: 8px; }
+.login-code { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.login-code input { flex: 1; min-width: 0; }
 
 /* 方案使用量 */
 .row > .usage-main { flex: 1; }

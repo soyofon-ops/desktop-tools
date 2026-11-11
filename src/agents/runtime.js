@@ -62,6 +62,7 @@ function buildQueryOptions(auth = {}, { appVersion = '' } = {}) {
 const AUTH_METHODS = {
   oauth_token: 'Claude 帳號',
   claude_ai: 'Claude 帳號',
+  'claude.ai': 'Claude 帳號', // 實際回傳的值（2.1.318）
   api_key: 'API Key',
   oauth_api_key: 'Claude Console 帳號'
 };
@@ -90,17 +91,99 @@ function localAuthStatus({ timeoutMs = 20000, spawn = require('child_process').s
       clearTimeout(timer);
       try {
         const j = JSON.parse(out.slice(out.indexOf('{')));
+        // loginExpiresAt 沒有公開文件，意義不明確，只作為「可能已過期」的提示
+        const expiresAt = typeof j.loginExpiresAt === 'string' ? j.loginExpiresAt : null;
+        const expiresMs = expiresAt ? Date.parse(expiresAt) : NaN;
         finish({
           ok: true,
           loggedIn: !!j.loggedIn,
           method: j.loggedIn ? (AUTH_METHODS[j.authMethod] || j.authMethod || '') : '',
-          source: j.apiKeySource || ''
+          rawMethod: j.authMethod || '',
+          source: j.apiKeySource || '',
+          expiresAt,
+          expired: !!j.loggedIn && Number.isFinite(expiresMs) && expiresMs <= Date.now()
         });
       } catch {
         finish({ ok: false, loggedIn: false, error: '無法讀取 Claude Code 的登入狀態' });
       }
     });
   });
+}
+
+/** 移除終端機跳脫碼（顏色、OSC 8 超連結），只留純文字 */
+function stripAnsi(s) {
+  return String(s)
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g, ' ')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+/**
+ * 以 Claude Code 的 `claude auth login` 登入本機帳號：Claude Code 會自己開啟瀏覽器並接收授權，
+ * 瀏覽器無法自動回傳時會改為顯示授權碼，由使用者貼上（sendCode 寫入程序的標準輸入）。
+ * 本程式不讀取、不保存任何憑證；授權碼只轉交給 Claude Code。
+ * 回傳 { done: Promise<{ ok, cancelled?, error? }>, sendCode(code), cancel() }
+ * onUpdate({ url })：從輸出讀到備用登入網址時呼叫
+ */
+function localAuthLogin({ console: useConsole = false, timeoutMs = 10 * 60 * 1000, onUpdate = () => {}, spawn = require('child_process').spawn, bin = nativeBinary() } = {}) {
+  let finish;
+  const done = new Promise((resolve) => { finish = resolve; });
+  if (!bin) {
+    finish({ ok: false, error: '找不到 Claude Code 執行檔' });
+    return { done, sendCode: () => false, cancel: () => {} };
+  }
+  let settled = false;
+  let cancelled = false;
+  let out = '';
+  let url = null;
+  let child;
+  let timer = null;
+  const end = (r) => { if (!settled) { settled = true; clearTimeout(timer); finish(r); } };
+  const args = ['auth', 'login', ...(useConsole ? ['--console'] : [])];
+  try {
+    child = spawn(bin, args, { env: childEnv({ mode: 'claudeCode' }), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (err) {
+    end({ ok: false, error: String(err.message || err) });
+    return { done, sendCode: () => false, cancel: () => {} };
+  }
+  timer = setTimeout(() => {
+    try { child.kill(); } catch { /* 已結束 */ }
+    end({ ok: false, error: '登入逾時，請再試一次' });
+  }, timeoutMs);
+  const onData = (d) => {
+    out = (out + d).slice(-8000);
+    if (!url) {
+      // 網址可能只出現在 OSC 8 超連結的參數裡，所以從原始輸出找，遇到跳脫碼即停止
+      const m = out.match(/https:\/\/[^\s\u0007\u001b]+/);
+      if (m) { url = m[0]; onUpdate({ url }); }
+    }
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.stdin.on('error', () => { /* 程序已結束時寫入會失敗，交給 close 處理 */ });
+  child.on('error', (err) => end({ ok: false, error: String(err.message || err) }));
+  child.on('close', (code) => {
+    if (cancelled) return end({ ok: false, cancelled: true });
+    if (code === 0) return end({ ok: true });
+    // 錯誤訊息取最後一行有內容的輸出（不含網址）；授權碼提示沒有換行，後面的錯誤會接在同一行，只移除提示字樣
+    const lines = stripAnsi(out).split('\n')
+      .map((l) => l.replace(/^\s*Paste code here if prompted\s*>\s*/i, '').trim())
+      .filter((l) => l && !/https?:\/\//.test(l));
+    end({ ok: false, error: lines[lines.length - 1] || `登入失敗（結束碼 ${code}）` });
+  });
+  return {
+    done,
+    sendCode(code) {
+      const c = String(code || '').trim();
+      if (settled || !c || c.length > 2000 || /\s/.test(c)) return false;
+      child.stdin.write(`${c}\n`);
+      return true;
+    },
+    cancel() {
+      if (settled) return;
+      cancelled = true;
+      try { child.kill(); } catch { /* 已結束 */ }
+    }
+  };
 }
 
 /** 只取已知的額度欄位；SDK 回傳的其他欄位未公開，可能隨時變動 */
@@ -148,4 +231,4 @@ async function planUsage({ loadQuery: load = loadQuery, options = {}, cwd, timeo
   }
 }
 
-module.exports = { loadQuery, loadToolKit, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, planUsage, summarizePlanUsage };
+module.exports = { loadQuery, loadToolKit, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, localAuthLogin, stripAnsi, planUsage, summarizePlanUsage };

@@ -153,6 +153,8 @@ function renderAgents(st) {
   $('#btn-key-set').textContent = st.hasKey ? '更換' : '設定';
   $('#btn-key-clear').hidden = !st.hasKey;
   $('#path-agents').textContent = st.agentsDir || '';
+  agentsView = st;
+  renderLocalLogin();
   if (local && authMode !== 'claudeCode') checkLocal();
   // agents:changed 很頻繁，只有開啟設定頁或切換登入方式時才查詢使用量
   if (authMode !== st.authMode) loadUsage(local);
@@ -160,26 +162,88 @@ function renderAgents(st) {
 }
 
 let checking = 0;
+let checkBusy = false; // 正在查詢本機登入狀態
+let agentsView = null; // 最近一次的角色狀態（含登入進度）
+let localStatus = null; // 最近一次的本機登入檢查結果；查詢失敗時為 { ok: false, error }
+let codeSent = false; // 這次登入已送出授權碼
 async function checkLocal() {
   const n = ++checking;
-  $('#local-status').textContent = '檢查中…';
-  $('#local-status').classList.remove('warn');
-  $('#btn-local-check').disabled = true;
+  checkBusy = true;
+  localStatus = null;
+  renderLocalLogin();
+  let st;
   try {
-    const st = await settings.agents.call('localAuthStatus');
-    if (n !== checking) return;
-    if (st.loggedIn) {
-      $('#local-status').textContent = `已登入${st.method ? `（${st.method}${st.source ? `，來源 ${st.source}` : ''}）` : ''}`;
-    } else {
-      $('#local-status').textContent = st.ok ? '尚未登入：請在終端機執行 claude 並完成登入，再按「重新檢查」' : `無法確認：${st.error}`;
-      $('#local-status').classList.add('warn');
-    }
+    st = await settings.agents.call('localAuthStatus');
   } catch (err) {
-    if (n === checking) { $('#local-status').textContent = `無法確認：${err.message}`; $('#local-status').classList.add('warn'); }
-  } finally {
-    if (n === checking) $('#btn-local-check').disabled = false;
+    st = { ok: false, loggedIn: false, error: err.message };
+  }
+  if (n !== checking) return;
+  checkBusy = false;
+  localStatus = st;
+  renderLocalLogin();
+}
+
+/** 本機登入的狀態文字與按鈕：「登入 Claude」只在尚未登入、登入可能已過期，或聊天時登入失敗時顯示 */
+function renderLocalLogin() {
+  const view = agentsView || {};
+  const login = view.localLogin || { running: false };
+  const st = localStatus;
+  const failed = !!view.localAuthFailed;
+  let text;
+  let warn = true;
+  if (login.running) { text = '登入中…'; warn = false; }
+  else if (!st) { text = '檢查中…'; warn = false; }
+  else if (!st.ok) text = `無法確認：${st.error}`;
+  else if (!st.loggedIn) text = '尚未登入：請按「登入 Claude」，或在終端機執行 claude 並完成登入';
+  else if (st.expired) text = '登入可能已過期：請按「登入 Claude」重新登入';
+  else if (failed) text = '聊天時登入失敗，登入可能已過期：請按「登入 Claude」重新登入';
+  else { text = `已登入${st.method ? `（${st.method}${st.source ? `，來源 ${st.source}` : ''}）` : ''}`; warn = false; }
+  $('#local-status').textContent = text;
+  $('#local-status').classList.toggle('warn', warn);
+
+  const needLogin = view.authMode === 'claudeCode' && (failed || (!!st && st.ok && (!st.loggedIn || !!st.expired)));
+  $('#btn-local-login').hidden = !needLogin || login.running;
+  $('#btn-local-check').disabled = checkBusy || login.running;
+  $('#local-login').hidden = !login.running;
+  if (login.running) {
+    $('#login-status').textContent = codeSent
+      ? '已送出授權碼，等待 Claude Code 完成登入…'
+      : '已在瀏覽器開啟 Claude 登入頁，完成後會自動更新。登入會套用到這台電腦的 Claude Code（包含終端機）';
+    $('#btn-login-copy').hidden = !login.url;
+  } else {
+    codeSent = false;
+    $('#login-code').value = '';
   }
 }
+
+async function startLogin() {
+  $('#btn-local-login').hidden = true;
+  let r;
+  try {
+    r = await settings.agents.call('startLocalLogin');
+  } catch (err) {
+    r = { ok: false, error: err.message };
+  }
+  if (r.ok) toast('已登入 Claude');
+  else if (!r.cancelled) toast(`登入失敗：${r.error}`, true);
+  await checkLocal();
+  loadUsage(true);
+}
+
+$('#btn-local-login').addEventListener('click', startLogin);
+$('#btn-login-cancel').addEventListener('click', () => run(() => settings.agents.call('cancelLocalLogin')));
+$('#btn-login-code').addEventListener('click', () => run(async () => {
+  await settings.agents.call('submitLoginCode', $('#login-code').value);
+  codeSent = true;
+  $('#login-code').value = '';
+  renderLocalLogin();
+}));
+$('#login-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-login-code').click(); });
+$('#btn-login-copy').addEventListener('click', () => run(async () => {
+  const url = agentsView && agentsView.localLogin && agentsView.localLogin.url;
+  if (!url) throw new Error('還沒有登入網址');
+  await navigator.clipboard.writeText(url);
+}, '已複製登入網址，請貼到瀏覽器開啟'));
 
 const USAGE_PLANS = { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' };
 const pad2 = (n) => String(n).padStart(2, '0');

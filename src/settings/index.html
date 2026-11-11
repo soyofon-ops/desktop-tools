@@ -52,8 +52,23 @@
           </select>
         </div>
         <div class="row" id="row-local" hidden>
-          <div><div class="row-title">本機 Claude Code</div><div class="row-desc" id="local-status">檢查中…</div></div>
-          <button class="btn" id="btn-local-check">重新檢查</button>
+          <div class="local-main">
+            <div class="row-title">本機 Claude Code</div>
+            <div class="row-desc" id="local-status" role="status">檢查中…</div>
+            <div class="local-login" id="local-login" hidden>
+              <div class="row-desc" id="login-status" role="status"></div>
+              <div class="login-code">
+                <input type="text" id="login-code" placeholder="瀏覽器顯示授權碼時，貼在這裡" autocomplete="off" spellcheck="false" aria-label="授權碼">
+                <button class="btn small" id="btn-login-code">送出</button>
+                <button class="btn small" id="btn-login-copy" hidden>複製登入網址</button>
+                <button class="btn small ghost" id="btn-login-cancel">取消</button>
+              </div>
+            </div>
+          </div>
+          <span class="btn-group">
+            <button class="btn primary" id="btn-local-login" hidden title="會更新這台電腦 Claude Code 的登入，終端機的 Claude Code 也會使用新的登入">登入 Claude</button>
+            <button class="btn" id="btn-local-check">重新檢查</button>
+          </span>
         </div>
         <div class="row" id="row-usage">
           <div class="usage-main">
@@ -65,7 +80,7 @@
         </div>
         <div class="row" id="row-key">
           <div><div class="row-title">Anthropic API Key</div><div class="row-desc" id="key-status">讀取中…</div></div>
-          <span style="display: flex; gap: 6px">
+          <span class="btn-group">
             <button class="btn danger" id="btn-key-clear" hidden>刪除</button>
             <button class="btn" id="btn-key-set">設定</button>
           </span>

@@ -7,7 +7,7 @@ const path = require('path');
 const files = require('./agent-files');
 const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
-const { planUsage: fetchPlanUsage, loadToolKit: defaultLoadToolKit } = require('./runtime');
+const { planUsage: fetchPlanUsage, loadToolKit: defaultLoadToolKit, localAuthLogin: defaultLocalAuthLogin } = require('./runtime');
 const { HANDOFF_TOOL, routingPrompt, handoffMessage, createHandoffs, handoffServer } = require('./handoff');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 
@@ -50,7 +50,8 @@ function setupAgents(deps) {
     ipcMain, userDataDir, homeDir, safeStorage, fetch, trash, pickFolder,
     openPopup, isAllowedSender, broadcast, loadQuery, loadToolKit = defaultLoadToolKit, buildQueryOptions = () => ({}),
     getTheme = () => 'dark', openPath = async () => {}, powerMonitor = null,
-    localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' })
+    localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' }),
+    localAuthLogin = defaultLocalAuthLogin
   } = deps;
   const agentsDir = files.agentsDir(homeDir);
   const panelFile = path.join(userDataDir, 'agents.json');
@@ -58,6 +59,8 @@ function setupAgents(deps) {
   // 保留原名的角色可能含 / 等不能當檔名的字元，編碼後才不會寫到其他路徑
   const chatFile = (name) => path.join(chatsDir, `${String(name).replace(/[\\/:*?"<>|%]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)}.json`);
   const keys = createKeyStore({ dir: userDataDir, safeStorage, fetch });
+  let localAuthFailed = false; // 聊天時遇到本機登入失效（只存在記憶體）
+  let localLogin = null; // 進行中的本機登入：{ ctl, url, done }
 
   // ---- 面板資料 ----
   // authMode：'apiKey'（預設）或 'claudeCode'（沿用本機 Claude Code 的登入）
@@ -160,7 +163,14 @@ function setupAgents(deps) {
 
   /** session 事件 → 更新紀錄並轉送聊天視窗 */
   function onEvent(name, ev) {
-    if (ev.type === 'error' || (ev.type === 'result' && ev.isError)) ev = { ...ev, message: authHint(ev.message) };
+    if (ev.type === 'error' || (ev.type === 'result' && ev.isError)) {
+      // 聊天時遇到本機登入失效：記在記憶體，設定頁據此顯示「登入 Claude」
+      if (panel.authMode === 'claudeCode' && isLoginError(ev.message) && !localAuthFailed) {
+        localAuthFailed = true;
+        setImmediate(broadcastState);
+      }
+      ev = { ...ev, message: authHint(ev.message) };
+    }
     const h = historyOf(name);
     const last = h.items[h.items.length - 1];
     // API 錯誤會先後以 error 與 result 各傳一次，同樣的訊息只顯示一次
@@ -274,7 +284,9 @@ function setupAgents(deps) {
       authMode: panel.authMode,
       ready: canChat(),
       existing: [...defs.keys()].filter((n) => !panel.roles.some((r) => r.name === n)),
-      agentsDir
+      agentsDir,
+      localAuthFailed,
+      localLogin: localLogin ? { running: true, url: localLogin.url } : { running: false }
     };
   }
 
@@ -282,12 +294,16 @@ function setupAgents(deps) {
     return panel.authMode === 'claudeCode' || !!keys.get();
   }
 
+  function isLoginError(message) {
+    return /not logged in|please run \/login|login expired|authentication_error|OAuth token|API Key 無效/i.test(String(message || ''));
+  }
+
   /** 錯誤訊息依登入方式補上該怎麼處理 */
   function authHint(message) {
     const m = String(message || '');
     if (panel.authMode === 'claudeCode') {
-      if (/not logged in|please run \/login|login expired|authentication_error|OAuth token|API Key 無效/i.test(m)) {
-        return '本機的 Claude Code 尚未登入或登入已過期。請在終端機執行 claude 並完成登入，或到「設定 → Claude 角色」改用 API Key。';
+      if (isLoginError(m)) {
+        return '本機的 Claude Code 尚未登入或登入已過期。請到「設定 → 一般 → Claude 角色」按「登入 Claude」，或在終端機執行 claude 並完成登入，也可以改用 API Key。';
       }
       if (/usage limit|rate.?limit|額度|太頻繁/i.test(m)) return `${m}（使用的是你 Claude 方案的額度）`;
       return m;
@@ -313,6 +329,35 @@ function setupAgents(deps) {
       handoffs.drainAll(); // 檔案被刪掉的角色，它的佇列要清掉
     }
   });
+
+  // ---- 本機 Claude Code 登入 ----
+  async function startLocalLogin() {
+    if (panel.authMode !== 'claudeCode') throw new Error('目前不是使用本機 Claude Code 登入');
+    if (localLogin) return localLogin.done; // 同時間只有一個登入流程
+    // Claude Console 帳號沿用同一種登入方式；查不到時用預設的 Claude 訂閱帳號
+    let status = null;
+    try { status = await localAuthStatus(); } catch { /* 查不到就用預設 */ }
+    if (localLogin) return localLogin.done;
+    const entry = { ctl: null, url: null, done: null };
+    entry.ctl = localAuthLogin({
+      console: !!status && status.rawMethod === 'oauth_api_key',
+      onUpdate: ({ url }) => { entry.url = url; broadcastState(); }
+    });
+    entry.done = entry.ctl.done.then((r) => {
+      localLogin = null;
+      if (r.ok) {
+        localAuthFailed = false;
+        // 閒置的程序換新登入重新啟動，下次傳訊息時接續；回覆中的不中斷
+        for (const [name, s] of sessions) if (s.state === 'idle') { s.close(); sessions.delete(name); }
+        handoffs.drainAll();
+      }
+      broadcastState();
+      return r;
+    });
+    localLogin = entry;
+    broadcastState();
+    return entry.done;
+  }
 
   // ---- 呼叫 ----
   let usageQuery = null; // 進行中的方案使用量查詢
@@ -486,6 +531,21 @@ function setupAgents(deps) {
     /** 本機 Claude Code 的登入狀態（只有狀態，不含憑證） */
     localAuthStatus: () => localAuthStatus(),
 
+    /** 以 claude auth login 登入；登入結束（成功、失敗或取消）才回傳結果 */
+    startLocalLogin: () => startLocalLogin(),
+
+    /** 瀏覽器顯示授權碼時，把授權碼交給進行中的登入程序 */
+    submitLoginCode(code) {
+      if (!localLogin) throw new Error('目前沒有進行中的登入');
+      if (!localLogin.ctl.sendCode(code)) throw new Error('授權碼格式不正確');
+      return true;
+    },
+
+    cancelLocalLogin() {
+      if (localLogin) localLogin.ctl.cancel();
+      return true;
+    },
+
     /** 方案使用量（只有本機 Claude Code 登入才有方案額度）；同時間只查一次 */
     planUsage() {
       if (panel.authMode !== 'claudeCode') return { available: false, reason: 'apiKey' };
@@ -584,6 +644,7 @@ function setupAgents(deps) {
       disposed = true; // 下面關閉對話時，不要再送出佇列中的工作
       stopScheduler();
       stopWatch();
+      if (localLogin) localLogin.ctl.cancel(); // 關閉程式時不留下登入程序
       for (const [name] of sessions) closeSession(name);
     }
   };

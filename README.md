@@ -174,9 +174,12 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 
 - **Anthropic API Key**（預設）：依用量計費，需先在 Claude Console 儲值。金鑰以作業系統的加密功能（Windows DPAPI、macOS 鑰匙圈）
   保存在 `<設定資料夾>/anthropic-key.bin`，不寫進設定檔。
-- **沿用本機 Claude Code 登入**：使用這台電腦上 Claude Code 已登入的帳號與方案額度（需先在終端機執行 `claude` 登入）。
+- **沿用本機 Claude Code 登入**：使用這台電腦上 Claude Code 已登入的帳號與方案額度（需先登入：在終端機執行 `claude`，或在設定頁按「登入 Claude」）。
   本程式不給 Claude Code 任何金鑰，由它自己讀取登入資料（Windows `%USERPROFILE%\.claude\.credentials.json`、macOS 鑰匙圈），
-  本程式不讀取也不保存；設定頁可檢查本機登入狀態（`claude auth status`），也會顯示方案使用量（5 小時、7 天等額度的百分比與重置時間），開啟設定頁時查詢一次，可手動重新整理。這是 Agent SDK 的實驗性功能，查詢不會呼叫模型或留下對話紀錄；API Key 模式沒有方案額度，請到 Claude Console 查看。
+  本程式不讀取也不保存；設定頁可檢查本機登入狀態（`claude auth status`）。
+  尚未登入、登入可能已過期，或聊天時出現登入錯誤時，設定頁會顯示「登入 Claude」：以內建的 Claude Code 執行 `claude auth login`，
+  由 Claude Code 自己開啟瀏覽器完成登入；瀏覽器顯示授權碼時可貼回設定頁。登入會套用到這台電腦的 Claude Code（終端機也會使用新的登入），
+  完成後閒置中的角色會以新登入重新啟動，回覆中的角色不受影響。設定頁也會顯示方案使用量（5 小時、7 天等額度的百分比與重置時間），開啟設定頁時查詢一次，可手動重新整理。這是 Agent SDK 的實驗性功能，查詢不會呼叫模型或留下對話紀錄；API Key 模式沒有方案額度，請到 Claude Console 查看。
 
 > [!IMPORTANT]
 > 依 [Claude Code 的使用規範](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)，
