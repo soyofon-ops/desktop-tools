@@ -147,6 +147,9 @@
   body.auto-approve[data-theme="light"] .input-row, body.auto-approve[data-theme="light"] .input-row:focus-within { background: #f5d3d7; border-color: #b4232f; }
   .auto-chip { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; color: #ff8a93; border: 1px solid #ff8a93; }
   body[data-theme="light"] .auto-chip { color: #b4232f; border-color: #b4232f; }
+  /* 免詢問模式：送出按鈕改用紅色，提醒送出後不會再詢問 */
+  body.auto-approve .send { color: #ff8a93; border-color: #ff8a93; background: color-mix(in srgb, #ff8a93 14%, transparent); }
+  body.auto-approve[data-theme="light"] .send { color: #b4232f; border-color: #b4232f; background: color-mix(in srgb, #b4232f 14%, transparent); }
   [hidden] { display: none !important; }
 </style>
 </head>
