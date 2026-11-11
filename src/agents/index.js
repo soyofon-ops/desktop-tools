@@ -24,6 +24,11 @@ const TOOL_GROUPS = {
   web: ['WebSearch', 'WebFetch']
 };
 
+/** 等待使用者處理的卡片（工具核准、AskUserQuestion）：程序結束後無法再回應，不保存也不顯示 */
+function isPendingCard(item) {
+  return item.role === 'permission' || item.role === 'question';
+}
+
 function hashPick(str, list) {
   let h = 0;
   for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -143,7 +148,7 @@ function setupAgents(deps) {
     if (!histories.has(name)) {
       let h = { items: [], cost: null, model: null };
       try { h = { ...h, ...JSON.parse(fs.readFileSync(chatFile(name), 'utf8')) }; } catch { /* 沒有紀錄 */ }
-      h.items = h.items.filter((i) => i.role !== 'permission');
+      h.items = h.items.filter((i) => !isPendingCard(i));
       histories.set(name, h);
     }
     return histories.get(name);
@@ -154,7 +159,7 @@ function setupAgents(deps) {
     if (!h) return;
     try {
       fs.mkdirSync(chatsDir, { recursive: true });
-      const items = h.items.filter((i) => i.role !== 'permission' && !i.streaming).slice(-MAX_HISTORY);
+      const items = h.items.filter((i) => !isPendingCard(i) && !i.streaming).slice(-MAX_HISTORY);
       fs.writeFileSync(chatFile(name), JSON.stringify({ items, cost: h.cost, model: h.model }), 'utf8');
     } catch (err) {
       console.error('儲存對話紀錄失敗', err);
@@ -195,8 +200,11 @@ function setupAgents(deps) {
       case 'permission':
         h.items.push({ role: 'permission', id: ev.id, title: ev.title, code: ev.code, note: ev.note, allowSession: ev.allowSession });
         break;
+      case 'question':
+        h.items.push({ role: 'question', id: ev.id, questions: ev.questions });
+        break;
       case 'permission_done': {
-        const i = h.items.findIndex((x) => x.role === 'permission' && x.id === ev.id);
+        const i = h.items.findIndex((x) => isPendingCard(x) && x.id === ev.id);
         if (i >= 0) h.items.splice(i, 1);
         break;
       }
@@ -479,7 +487,7 @@ function setupAgents(deps) {
     history(name) {
       const h = historyOf(name);
       const s = sessions.get(name);
-      const items = s ? h.items : h.items.filter((i) => i.role !== 'permission');
+      const items = s ? h.items : h.items.filter((i) => !isPendingCard(i));
       return { items, cost: h.cost, model: h.model, state: s ? s.state : 'idle' };
     },
 
@@ -526,9 +534,10 @@ function setupAgents(deps) {
       return !!r.autoApprove;
     },
 
-    answer(name, id, decision) {
+    /** answers 只用於 AskUserQuestion 題目卡片：題目文字 → 答案 */
+    answer(name, id, decision, answers) {
       const s = sessions.get(name);
-      return s ? s.answer(id, decision) : false;
+      return s ? s.answer(id, decision, answers) : false;
     },
 
     keyStatus: () => ({ hasKey: !!keys.get(), authMode: panel.authMode }),

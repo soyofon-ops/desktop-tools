@@ -4,6 +4,23 @@ const path = require('path');
 const { HANDOFF_TOOL } = require('./handoff');
 
 const IDLE_CLOSE_MS = 10 * 60 * 1000; // 閒置 10 分鐘關閉程序，下次傳訊息時用 resume 接續
+const ASK_TOOL = 'AskUserQuestion';
+const MAX_ANSWER_LENGTH = 2000;
+
+/** 只保留聊天視窗需要的題目欄位 */
+function questionCard(input = {}) {
+  const list = Array.isArray(input.questions) ? input.questions : [];
+  return list.map((q) => ({
+    question: String((q && q.question) || ''),
+    header: String((q && q.header) || ''),
+    multiSelect: !!(q && q.multiSelect),
+    options: (Array.isArray(q && q.options) ? q.options : []).map((o) => ({
+      label: String((o && o.label) || ''),
+      description: String((o && o.description) || ''),
+      ...(o && typeof o.preview === 'string' && o.preview ? { preview: o.preview } : {})
+    }))
+  }));
+}
 
 /** 工具動作的中文摘要（顯示在聊天視窗的工具列） */
 function toolSummary(name, input = {}, cwd = '') {
@@ -30,6 +47,7 @@ function toolSummary(name, input = {}, cwd = '') {
     case 'Agent':
     case 'Task': return { verb: '交給子代理', detail: cut(input.description || input.subagent_type, 80) };
     case 'TodoWrite': return { verb: '更新待辦清單', detail: '' };
+    case ASK_TOOL: return { verb: '詢問你', detail: cut(input.questions && input.questions[0] && input.questions[0].question, 80) };
     case HANDOFF_TOOL: return { verb: '轉派給', detail: cut(input.role, 60) };
     default: return { verb: '使用工具', detail: name };
   }
@@ -126,9 +144,13 @@ class AgentSession {
       cwd: this.cwd,
       includePartialMessages: true,
       // 轉派不需要核准；目標角色要動手時仍會在自己的聊天視窗核准
-      canUseTool: async (toolName, input, opts) => (toolName === HANDOFF_TOOL || this.shouldAutoApprove(opts)
-        ? { behavior: 'allow', updatedInput: input }
-        : this.askPermission(toolName, input, opts)),
+      // AskUserQuestion 一定要等使用者回答，免詢問模式也不能自動允許（自動允許等於沒有回答）
+      canUseTool: async (toolName, input, opts) => {
+        if (toolName === ASK_TOOL) return this.askQuestion(input, opts);
+        return toolName === HANDOFF_TOOL || this.shouldAutoApprove(opts)
+          ? { behavior: 'allow', updatedInput: input }
+          : this.askPermission(toolName, input, opts);
+      },
       ...(this.sessionId ? { resume: this.sessionId } : {}),
       ...this.buildOptions()
     };
@@ -257,13 +279,53 @@ class AgentSession {
     });
   }
 
-  /** decision: 'allow' | 'allow_session' | 'deny' */
-  answer(id, decision) {
+  /** AskUserQuestion：顯示題目卡片，等使用者選擇後把答案放進 updatedInput.answers */
+  askQuestion(input, opts = {}) {
+    const id = opts.toolUseID || `q${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    return new Promise((resolve) => {
+      this.pending.set(id, { resolve, input, suggestions: [], toolName: ASK_TOOL, kind: 'question' });
+      this.emit({ type: 'question', id, questions: questionCard(input) });
+      this.setState('waiting');
+      if (opts.signal) {
+        opts.signal.addEventListener('abort', () => {
+          if (!this.pending.has(id)) return;
+          this.pending.delete(id);
+          this.emit({ type: 'permission_done', id, decision: 'cancelled' });
+          resolve({ behavior: 'deny', message: '已取消' });
+        }, { once: true });
+      }
+    });
+  }
+
+  /** 只接受題目中存在的問題，答案轉成字串並限制長度 */
+  questionResult(p, answers) {
+    const asked = new Set(questionCard(p.input).map((q) => q.question));
+    const clean = {};
+    for (const [q, a] of Object.entries(answers && typeof answers === 'object' ? answers : {})) {
+      const text = String(a ?? '').trim().slice(0, MAX_ANSWER_LENGTH);
+      if (asked.has(q) && text) clean[q] = text;
+    }
+    // 有題目沒回答就當作略過，不送出不完整的答案
+    if (!asked.size || Object.keys(clean).length !== asked.size) return null;
+    return { behavior: 'allow', updatedInput: { ...p.input, answers: clean } };
+  }
+
+  /**
+   * decision: 'allow' | 'allow_session' | 'deny'；題目卡片為 'answer' | 'skip'
+   * @param {Record<string, string>} [answers] 題目文字 → 答案（複選以「, 」分隔）
+   */
+  answer(id, decision, answers) {
     const p = this.pending.get(id);
     if (!p) return false;
-    this.pending.delete(id);
     let result;
-    if (decision === 'allow' || decision === 'allow_session') {
+    if (p.kind === 'question') {
+      if (decision === 'answer') {
+        result = this.questionResult(p, answers);
+        if (!result) return false; // 答案不完整：卡片保留，讓使用者補齊
+      } else {
+        result = { behavior: 'deny', message: '使用者略過了這些問題。請不要重試，改在對話中直接詢問使用者。' };
+      }
+    } else if (decision === 'allow' || decision === 'allow_session') {
       result = { behavior: 'allow', updatedInput: p.input };
       if (decision === 'allow_session') {
         // 只在這個對話有效：建議的規則改成 session 範圍；沒有建議時允許這個工具
@@ -275,6 +337,7 @@ class AgentSession {
     } else {
       result = { behavior: 'deny', message: '使用者拒絕了這個動作。請不要重試，改問使用者要怎麼做。' };
     }
+    this.pending.delete(id);
     this.emit({ type: 'permission_done', id, decision });
     if (!this.pending.size) this.setState('running');
     p.resolve(result);

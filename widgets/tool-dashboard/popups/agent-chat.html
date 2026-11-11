@@ -94,6 +94,24 @@
   .perm pre { margin: 0; max-height: 140px; overflow: auto; background: rgba(0, 0, 0, 0.18); }
   .perm .note { margin-top: -2px; }
   .perm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* AskUserQuestion 題目卡片 */
+  .ask-q { border: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .ask-q legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0; margin-bottom: 6px; font-size: 12px; line-height: 1.5; }
+  .ask-tag { font-size: 11px; padding: 0 6px; border-radius: 9px; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 60%, transparent); }
+  .ask-hint { font-size: 11px; color: var(--muted); }
+  .ask-opts { display: flex; flex-direction: column; gap: 4px; }
+  .ask-opt {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; width: 100%;
+    padding: 6px 9px; border-radius: 6px; border: 1px solid var(--stroke); color: var(--text); font-size: 12px;
+  }
+  .ask-opt:hover { background: var(--hover); }
+  .ask-opt[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .ask-opt[aria-pressed="true"] .ask-label { color: var(--accent); font-weight: 600; }
+  .ask-opt:disabled { opacity: 0.5; cursor: default; }
+  .ask-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .ask-other { height: 30px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--stroke); background: var(--panel); color: var(--text); font: inherit; font-size: 12px; outline: none; }
+  .ask-other:focus { border-color: var(--accent); }
+  .ask-preview { margin: 0; max-height: 160px; overflow: auto; white-space: pre-wrap; background: rgba(0, 0, 0, 0.18); }
   .err { padding: 8px 10px; border-radius: 8px; font-size: 12px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
   .status-line { font-size: 11px; color: var(--muted); }
 
@@ -124,9 +142,9 @@
   .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--stroke); }
   .keyform .lead.small { font-size: 11px; margin-top: -8px; }
   .lock { display: flex; gap: 6px; font-size: 11px; color: var(--muted); line-height: 1.6; }
-  /* 「不要再詢問」開啟：背景改暗紅色，提醒這個對話不會再詢問核准 */
-  body.auto-approve { --panel: rgba(58, 16, 22, 0.97); --surface: #4a1c23; --hover: #5a2229; --stroke: #6e2f37; }
-  body.auto-approve[data-theme="light"] { --panel: rgba(250, 228, 230, 0.98); --surface: #f5d3d7; --hover: #efc4c9; --stroke: #dca3aa; }
+  /* 「不要再詢問」開啟：只有輸入框改為紅色，提醒這個對話不會再詢問核准 */
+  body.auto-approve .input-row, body.auto-approve .input-row:focus-within { background: #4a1c23; border-color: #ff8a93; }
+  body.auto-approve[data-theme="light"] .input-row, body.auto-approve[data-theme="light"] .input-row:focus-within { background: #f5d3d7; border-color: #b4232f; }
   .auto-chip { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; color: #ff8a93; border: 1px solid #ff8a93; }
   body[data-theme="light"] .auto-chip { color: #b4232f; border-color: #b4232f; }
   [hidden] { display: none !important; }

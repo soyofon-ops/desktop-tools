@@ -11,7 +11,8 @@ const ICON = {
   run: '<svg class="icon st-run" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg>',
   done: '<svg class="icon st-done" width="12" height="12" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   err: '<svg class="icon st-err" width="12" height="12" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
-  term: '<svg class="icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>'
+  term: '<svg class="icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>',
+  ask: '<svg class="icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17h.01"/></svg>'
 };
 
 let name = null;
@@ -166,6 +167,120 @@ function addPermission(p) {
   if (document.hasFocus()) deny.focus({ preventScroll: true });
 }
 
+const OTHER = '\u0000other'; // 「其他」選項的內部值，不會與選項文字重複
+
+/** AskUserQuestion：每題可單選或複選，另有「其他」自填；全部回答後才能送出 */
+function addQuestion(q) {
+  clearEmpty();
+  const card = document.createElement('div');
+  card.className = 'perm ask';
+  card.dataset.id = q.id;
+  card.setAttribute('role', 'alert');
+  const questions = Array.isArray(q.questions) ? q.questions : [];
+  /** 每題已選的值（選項文字或 OTHER） */
+  const picked = questions.map(() => new Set());
+
+  card.innerHTML = `
+    <div class="perm-title">${ICON.ask}<span>想請你回答</span></div>
+    ${questions.map((item, qi) => `
+      <fieldset class="ask-q" data-q="${qi}">
+        <legend>${item.header ? `<span class="ask-tag">${esc(item.header)}</span>` : ''}<span>${esc(item.question)}</span>${item.multiSelect ? '<span class="ask-hint">可複選</span>' : ''}</legend>
+        <div class="ask-opts">
+          ${item.options.map((o, oi) => `
+            <button type="button" class="ask-opt" data-o="${oi}" aria-pressed="false">
+              <span class="ask-label">${esc(o.label)}</span>
+              ${o.description ? `<span class="ask-desc">${esc(o.description)}</span>` : ''}
+            </button>`).join('')}
+          <button type="button" class="ask-opt" data-o="other" aria-pressed="false"><span class="ask-label">其他</span></button>
+        </div>
+        <input class="ask-other" type="text" maxlength="2000" placeholder="輸入你的回答" aria-label="其他：${esc(item.question)}" hidden>
+        <pre class="mono ask-preview" hidden></pre>
+      </fieldset>`).join('')}
+    <div class="perm-actions">
+      <button class="btn primary" data-d="answer" disabled>送出</button>
+      <button class="btn" data-d="skip">略過</button>
+    </div>`;
+
+  const submit = card.querySelector('[data-d="answer"]');
+
+  /** 題目文字 → 答案；有題目沒回答時回傳 null */
+  function collect() {
+    const out = {};
+    for (const [qi, item] of questions.entries()) {
+      const box = card.querySelector(`.ask-q[data-q="${qi}"]`);
+      const other = box.querySelector('.ask-other').value.trim();
+      const values = item.options.filter((o) => picked[qi].has(o.label)).map((o) => o.label);
+      if (picked[qi].has(OTHER) && other) values.push(other);
+      if (!values.length) return null;
+      out[item.question] = values.join(', ');
+    }
+    return out;
+  }
+
+  function refresh() {
+    submit.disabled = !questions.length || !collect();
+  }
+
+  card.querySelectorAll('.ask-q').forEach((box) => {
+    const qi = Number(box.dataset.q);
+    const item = questions[qi];
+    const otherInput = box.querySelector('.ask-other');
+    const preview = box.querySelector('.ask-preview');
+    box.querySelectorAll('.ask-opt').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const isOther = btn.dataset.o === 'other';
+        const opt = isOther ? null : item.options[Number(btn.dataset.o)];
+        const value = isOther ? OTHER : opt.label;
+        const set = picked[qi];
+        if (item.multiSelect) {
+          if (set.has(value)) set.delete(value); else set.add(value);
+        } else {
+          set.clear();
+          set.add(value);
+        }
+        box.querySelectorAll('.ask-opt').forEach((b) => {
+          const v = b.dataset.o === 'other' ? OTHER : item.options[Number(b.dataset.o)].label;
+          b.setAttribute('aria-pressed', String(set.has(v)));
+        });
+        otherInput.hidden = !set.has(OTHER);
+        if (isOther && !otherInput.hidden) otherInput.focus();
+        // 顯示最後點選且仍被選取的選項預覽
+        const shown = opt && set.has(value) && opt.preview;
+        preview.hidden = !shown;
+        preview.textContent = shown ? opt.preview : '';
+        refresh();
+      });
+    });
+    otherInput.addEventListener('input', refresh);
+    otherInput.addEventListener('keydown', (e) => {
+      // 輸入法組字中按 Enter 是選字，不送出
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !submit.disabled) {
+        e.preventDefault();
+        submit.click();
+      }
+    });
+  });
+
+  card.querySelectorAll('button[data-d]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      const decision = b.dataset.d;
+      const answers = decision === 'answer' ? collect() : undefined;
+      if (decision === 'answer' && !answers) return;
+      card.querySelectorAll('button, input').forEach((x) => { x.disabled = true; });
+      const ok = await window.agents.call('answer', name, q.id, decision, answers);
+      // 沒被接受（例如答案不完整）就讓使用者繼續操作；成功時卡片由 permission_done 移除
+      if (!ok && card.isConnected) {
+        card.querySelectorAll('button, input').forEach((x) => { x.disabled = false; });
+        refresh();
+      }
+    });
+  });
+
+  els.messages.appendChild(card);
+  // 略過預設取得焦點，避免誤按 Enter 就送出
+  if (document.hasFocus()) card.querySelector('[data-d="skip"]').focus({ preventScroll: true });
+}
+
 function addError(text) {
   clearEmpty();
   const div = document.createElement('div');
@@ -196,6 +311,7 @@ function renderHistory(h) {
       if (it.streaming) { streamEl = el; streamText = it.text; }
     } else if (it.role === 'tool') addTool(it);
     else if (it.role === 'permission') addPermission(it);
+    else if (it.role === 'question') addQuestion(it);
     else if (it.role === 'error') addError(it.text);
   }
   setCost(h.cost);
@@ -249,7 +365,9 @@ function onEvent({ name: n, event: ev, cost, model }) {
       break;
     }
     case 'permission': endStream(); addPermission(ev); break;
+    case 'question': endStream(); addQuestion(ev); break;
     case 'permission_done': {
+      // 工具核准與題目卡片都用 .perm，一起處理
       const card = els.messages.querySelector(`.perm[data-id="${CSS.escape(ev.id)}"]`);
       if (card) card.remove();
       break;

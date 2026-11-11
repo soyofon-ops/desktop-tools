@@ -578,11 +578,12 @@ let agentIdleTimer = null;
 let agentIdleCount = 0;
 let agentHoverName = null;
 
-/** 單一表情：失敗 > 等待核准 > 回覆完成 > 回覆中 > 閒置 */
+/** 單一表情：失敗 > 等待核准或等你確認 > 回覆完成 > 回覆中 > 閒置 */
 function agentMood(r, attn) {
   if (attn && attn.kind === 'error') return 'error';
   if (r.state === 'waiting') return 'waiting';
-  if (attn && (attn.kind === 'done' || attn.kind === 'ask')) return 'done';
+  if (attn && attn.kind === 'ask') return 'waiting'; // 回覆完成但在等你確認，用等待的表情
+  if (attn && attn.kind === 'done') return 'done';
   if (r.state === 'running') return 'running';
   return 'idle';
 }
@@ -783,7 +784,7 @@ function renderAgents() {
     if (attn) {
       btn.classList.add('attn');
       btn.classList.toggle('attn-error', attn.kind === 'error');
-      btn.classList.toggle('attn-done', attn.kind === 'done' || attn.kind === 'ask');
+      btn.classList.toggle('attn-done', attn.kind === 'done'); // 等你確認（ask）沿用等待的持續彈跳
       btn.classList.toggle('attn-ok', attn.kind === 'done'); // 不需確認的完成改為綠色
       btn.classList.toggle('attn-sticky', attn.sticky);
     }
