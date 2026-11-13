@@ -107,6 +107,7 @@ class AgentSession {
     this.closed = false;
     this.streamText = '';
     this.gen = 0;                // 每次啟動程序換一代，舊的輸入產生器會自行結束
+    this.terminalCommands = [];  // init 訊息標出的終端機專用指令
   }
 
   setState(s) {
@@ -183,8 +184,14 @@ class AgentSession {
     }
     switch (m.type) {
       case 'system':
-        if (m.subtype === 'init') this.emit({ type: 'ready', model: m.model });
-        else if (m.subtype === 'api_retry') this.emit({ type: 'retry', attempt: m.attempt, max: m.max_retries, error: m.error });
+        if (m.subtype === 'init') {
+          // 只能在終端機使用的指令，聊天視窗的選單要隱藏
+          this.terminalCommands = Array.isArray(m.terminal_slash_commands) ? m.terminal_slash_commands : [];
+          this.emit({ type: 'ready', model: m.model });
+        } else if (m.subtype === 'commands_changed') {
+          // 對話中途發現新的 skill：SDK 推送完整清單，直接取代
+          this.emit({ type: 'commands_raw', commands: Array.isArray(m.commands) ? m.commands : [] });
+        } else if (m.subtype === 'api_retry') this.emit({ type: 'retry', attempt: m.attempt, max: m.max_retries, error: m.error });
         break;
       case 'stream_event': {
         if (m.parent_tool_use_id) break; // 子代理內部的串流不顯示
@@ -229,6 +236,16 @@ class AgentSession {
         break;
       default:
         break;
+    }
+  }
+
+  /** 程序執行中才有：回傳 SDK 的 SlashCommand[]；沒有程序時回傳 null，由呼叫端改用暫時 session 讀取 */
+  async commands() {
+    if (!this.query || typeof this.query.supportedCommands !== 'function') return null;
+    try {
+      return await this.query.supportedCommands();
+    } catch {
+      return null;
     }
   }
 

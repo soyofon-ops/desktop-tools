@@ -373,6 +373,13 @@ function onEvent({ name: n, event: ev, cost, model }) {
       break;
     }
     case 'ready': setModel(ev.model); break;
+    // 對話啟動或中途發現新的 skill：主程序推送完整清單，直接取代
+    case 'commands':
+      commands = Array.isArray(ev.commands) ? ev.commands : [];
+      commandsError = '';
+      commandsJob = null;
+      if (!cmdMenu.hidden) renderCmdMenu();
+      return; // 不影響對話內容與捲動位置
     case 'retry': setStatus(`連線不穩，重試中（${ev.attempt}/${ev.max}）…`); break;
     case 'result':
       endStream();
@@ -414,6 +421,7 @@ async function send() {
   const text = els.input.value.trim();
   if (!text || busy) return;
   els.input.value = '';
+  hideCmdMenu();
   autoSize();
   updateSend();
   try {
@@ -429,8 +437,169 @@ function autoSize() {
   els.input.style.height = `${Math.min(120, els.input.scrollHeight)}px`;
 }
 
-els.input.addEventListener('input', () => { autoSize(); updateSend(); });
+// ---- 斜線指令選單：輸入框以 / 開頭、還沒輸入空白時顯示 ----
+const cmdMenu = $('cmd-menu');
+const CMD_LIMIT = 50;   // 最多顯示幾項，避免一次建立太多元素
+let commands = null;    // null：尚未載入
+let commandsError = '';
+let commandsJob = null; // 進行中的載入（記住是哪個角色，切換角色後舊結果不採用）
+let cmdMatches = [];
+let cmdIndex = 0;
+
+function loadCommands(refresh = false) {
+  if (!name || !ready) return;
+  if (commandsJob && commandsJob.name === name && !refresh) return;
+  const forName = name;
+  const job = { name: forName };
+  commandsJob = job;
+  commandsError = '';
+  window.agents.call('commands', forName, refresh).then((list) => {
+    if (commandsJob !== job) return;
+    commands = Array.isArray(list) ? list : [];
+  }).catch((err) => {
+    if (commandsJob !== job) return;
+    commandsError = err.message || '無法讀取指令清單';
+  }).finally(() => {
+    if (commandsJob !== job) return;
+    commandsJob = null;
+    renderCmdMenu();
+  });
+}
+
+function resetCommands() {
+  commands = null;
+  commandsError = '';
+  commandsJob = null;
+  hideCmdMenu();
+}
+
+/** 目前要搜尋的文字；不在指令輸入狀態時回傳 null */
+function cmdQuery() {
+  const v = els.input.value;
+  return v.startsWith('/') && !/\s/.test(v) ? v.slice(1).toLowerCase() : null;
+}
+
+/** 名稱開頭符合的排前面，其次是名稱包含，最後是說明包含；同一組內維持原本順序（自訂在前、內建在後） */
+function matchCommands(q) {
+  if (!q) return commands.slice();
+  const starts = [];
+  const has = [];
+  const desc = [];
+  for (const c of commands) {
+    const n = c.name.toLowerCase();
+    if (n.startsWith(q)) starts.push(c);
+    else if (n.includes(q)) has.push(c);
+    else if (c.description.toLowerCase().includes(q)) desc.push(c);
+  }
+  return starts.concat(has, desc);
+}
+
+function hideCmdMenu() {
+  cmdMenu.hidden = true;
+  cmdMenu.textContent = '';
+  cmdMatches = [];
+  els.input.removeAttribute('aria-activedescendant');
+  els.input.setAttribute('aria-expanded', 'false');
+}
+
+function cmdNote(text) {
+  cmdMenu.innerHTML = `<div class="cmd-empty">${esc(text)}</div>`;
+  cmdMatches = [];
+  els.input.removeAttribute('aria-activedescendant');
+}
+
+function renderCmdMenu() {
+  const q = cmdQuery();
+  if (q === null || !ready || !els.keyform.hidden) { hideCmdMenu(); return; }
+  cmdMenu.hidden = false;
+  els.input.setAttribute('aria-expanded', 'true');
+  if (commands === null) {
+    if (commandsError) cmdNote(`無法讀取指令清單：${commandsError}`);
+    else { cmdNote('正在讀取可用的指令…'); loadCommands(); }
+    return;
+  }
+  cmdMatches = matchCommands(q).slice(0, CMD_LIMIT);
+  if (!cmdMatches.length) { cmdNote(commands.length ? '沒有符合的指令' : '沒有可用的指令'); return; }
+  cmdIndex = Math.min(cmdIndex, cmdMatches.length - 1);
+  cmdMenu.innerHTML = cmdMatches.map((c, i) => `
+    <div class="cmd-item" role="option" id="cmd-${i}" data-i="${i}" aria-selected="${i === cmdIndex}">
+      <div class="cmd-top">
+        <span class="cmd-name">/${esc(c.name)}</span>
+        ${c.argumentHint ? `<span class="cmd-hint">${esc(c.argumentHint)}</span>` : ''}
+        ${c.builtin ? '<span class="cmd-tag">內建</span>' : ''}
+      </div>
+      ${c.description ? `<div class="cmd-desc">${esc(c.description)}</div>` : ''}
+    </div>`).join('');
+  markCmd();
+}
+
+function markCmd() {
+  cmdMenu.querySelectorAll('.cmd-item').forEach((el, i) => el.setAttribute('aria-selected', String(i === cmdIndex)));
+  const cur = $(`cmd-${cmdIndex}`);
+  if (cur) {
+    els.input.setAttribute('aria-activedescendant', cur.id);
+    cur.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+/** 選取後只填入輸入框，由使用者補上參數再送出 */
+function pickCmd(c) {
+  els.input.value = `/${c.name} `;
+  els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
+  hideCmdMenu();
+  els.input.focus();
+  autoSize();
+  updateSend();
+}
+
+/** 選單開著時處理方向鍵、Enter、Tab、Esc；有處理就回傳 true */
+function handleCmdKey(e) {
+  if (cmdMenu.hidden || e.isComposing || e.keyCode === 229) return false;
+  if (e.key === 'Escape') {
+    // 只關閉選單，不要讓視窗的 Esc 關閉整個視窗
+    e.preventDefault();
+    e.stopPropagation();
+    hideCmdMenu();
+    return true;
+  }
+  if (!cmdMatches.length) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = cmdMatches.length;
+    cmdIndex = (cmdIndex + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+    markCmd();
+    return true;
+  }
+  if ((e.key === 'Enter' && !e.shiftKey) || (e.key === 'Tab' && !e.shiftKey)) {
+    e.preventDefault();
+    pickCmd(cmdMatches[cmdIndex]);
+    return true;
+  }
+  return false;
+}
+
+// mousedown 先處理並阻止預設行為，輸入框才不會失去焦點
+cmdMenu.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const item = e.target.closest('.cmd-item');
+  if (item) pickCmd(cmdMatches[Number(item.dataset.i)]);
+});
+cmdMenu.addEventListener('mousemove', (e) => {
+  const item = e.target.closest('.cmd-item');
+  if (item && Number(item.dataset.i) !== cmdIndex) { cmdIndex = Number(item.dataset.i); markCmd(); }
+});
+els.input.setAttribute('aria-autocomplete', 'list');
+els.input.setAttribute('aria-controls', 'cmd-menu');
+els.input.addEventListener('blur', hideCmdMenu);
+
+els.input.addEventListener('input', () => {
+  autoSize();
+  updateSend();
+  cmdIndex = 0;
+  renderCmdMenu();
+});
 els.input.addEventListener('keydown', (e) => {
+  if (handleCmdKey(e)) return;
   // 輸入法組字中按 Enter 是選字，不送出
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
@@ -552,10 +721,14 @@ async function load(data) {
     els.confirm.hidden = true;
     els.input.value = '';
     autoSize();
+    resetCommands();
     renderHistory(await window.agents.call('history', name));
   }
   showKeyForm(!ready);
-  if (ready) els.input.focus();
+  if (ready) {
+    els.input.focus();
+    loadCommands(); // 先在背景載入，輸入 / 時通常已經好了；主程序有快取，不會每次都啟動程序
+  }
 }
 
 window.agents.onEvent(onEvent);
@@ -565,7 +738,7 @@ window.agents.onChanged((state) => {
   if (!r) {
     // 角色被移除或改名
     const renamed = state.roles.find((x) => x.open);
-    if (renamed) { name = renamed.name; role = renamed; renderHeader(); return; }
+    if (renamed) { name = renamed.name; role = renamed; resetCommands(); renderHeader(); return; }
     window.popup.close();
     return;
   }

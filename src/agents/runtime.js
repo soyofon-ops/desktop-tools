@@ -231,4 +231,53 @@ async function planUsage({ loadQuery: load = loadQuery, options = {}, cwd, timeo
   }
 }
 
-module.exports = { loadQuery, loadToolKit, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, localAuthLogin, stripAnsi, planUsage, summarizePlanUsage };
+/**
+ * 只取聊天視窗的指令選單需要的欄位；`__` 開頭是 Claude Code 內部用的指令，不顯示。
+ * 自訂的（使用者、專案、外掛、MCP）排前面，內建的排後面，各自依名稱排序。
+ * @param {object[]} list SDK 的 SlashCommand[]
+ * @param {string[]} [hidden] 要隱藏的指令名稱（例如 init 訊息的 terminal_slash_commands）
+ */
+function normalizeCommands(list, hidden = []) {
+  const hide = new Set(hidden);
+  const seen = new Set();
+  const out = [];
+  for (const c of Array.isArray(list) ? list : []) {
+    const name = String((c && c.name) || '').trim();
+    const key = `${name}\u0000${c && c.builtin ? 1 : 0}`;
+    if (!name || name.startsWith('__') || hide.has(name) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name,
+      description: String(c.description || ''),
+      argumentHint: String(c.argumentHint || ''),
+      builtin: !!c.builtin
+    });
+  }
+  return out.sort((a, b) => (a.builtin - b.builtin) || a.name.localeCompare(b.name));
+}
+
+/**
+ * 取得可用的斜線指令（skill 與指令）：啟動不送訊息的暫時 session，不呼叫模型、不留對話紀錄，取得後立即關閉。
+ * settingSources 與正式對話相同，才會載入同一份使用者、專案的 skill。
+ */
+async function listCommands({ loadQuery: load = loadQuery, options = {}, cwd, timeoutMs = 20000 } = {}) {
+  const query = await load();
+  let release;
+  const released = new Promise((resolve) => { release = resolve; });
+  async function* prompt() { await released; } // 不送出任何訊息
+  const q = query({ prompt: prompt(), options: { ...options, cwd, settingSources: ['user', 'project', 'local'], persistSession: false, maxTurns: 1 } });
+  // 要持續讀取訊息，控制請求才收得到回應；關閉時的錯誤可以忽略
+  const drained = (async () => { for await (const _ of q) { /* 略過 */ } })().catch(() => {});
+  let timer;
+  try {
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('讀取指令清單逾時')), timeoutMs); });
+    return normalizeCommands(await Promise.race([q.supportedCommands(), timeout]));
+  } finally {
+    clearTimeout(timer);
+    release();
+    q.close();
+    await drained;
+  }
+}
+
+module.exports = { loadQuery, loadToolKit, nativeBinary, buildQueryOptions, childEnv, localAuthStatus, localAuthLogin, stripAnsi, planUsage, summarizePlanUsage, listCommands, normalizeCommands };

@@ -7,7 +7,10 @@ const path = require('path');
 const files = require('./agent-files');
 const { AgentSession } = require('./session');
 const { createKeyStore, looksLikeKey } = require('./api-key');
-const { planUsage: fetchPlanUsage, loadToolKit: defaultLoadToolKit, localAuthLogin: defaultLocalAuthLogin } = require('./runtime');
+const {
+  planUsage: fetchPlanUsage, loadToolKit: defaultLoadToolKit, localAuthLogin: defaultLocalAuthLogin,
+  listCommands: defaultListCommands, normalizeCommands
+} = require('./runtime');
 const { HANDOFF_TOOL, routingPrompt, handoffMessage, createHandoffs, handoffServer } = require('./handoff');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 
@@ -56,7 +59,8 @@ function setupAgents(deps) {
     openPopup, isAllowedSender, broadcast, loadQuery, loadToolKit = defaultLoadToolKit, buildQueryOptions = () => ({}),
     getTheme = () => 'dark', openPath = async () => {}, powerMonitor = null,
     localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' }),
-    localAuthLogin = defaultLocalAuthLogin
+    localAuthLogin = defaultLocalAuthLogin,
+    listCommands = defaultListCommands
   } = deps;
   const agentsDir = files.agentsDir(homeDir);
   const panelFile = path.join(userDataDir, 'agents.json');
@@ -166,8 +170,58 @@ function setupAgents(deps) {
     }
   }
 
+  // ---- 斜線指令（聊天視窗輸入 / 時的選單） ----
+  const COMMANDS_TTL_MS = 60 * 1000; // 沒有執行中的程序時，快取多久後重新讀取（skill 檔案可能被新增或修改）
+  const commandCache = new Map();    // name → { cwd, at, list }
+  const commandQueries = new Map();  // name → 進行中的讀取
+
+  function roleCwd(name) {
+    const role = panel.roles.find((r) => r.name === name);
+    return role && role.cwd && fs.existsSync(role.cwd) ? role.cwd : homeDir;
+  }
+
+  function setCommands(name, raw, { push = true } = {}) {
+    const s = sessions.get(name);
+    const list = normalizeCommands(raw, s ? s.terminalCommands : []);
+    commandCache.set(name, { cwd: roleCwd(name), at: Date.now(), list });
+    if (push) broadcast('agents:event', { name, event: { type: 'commands', commands: list } });
+    return list;
+  }
+
+  /** 正式對話啟動後改向它讀取，清單才會包含這個角色專用的 MCP 指令，並套用終端機指令的過濾 */
+  async function refreshFromSession(name) {
+    const s = sessions.get(name);
+    const raw = s ? await s.commands() : null;
+    if (raw && sessions.get(name) === s) setCommands(name, raw);
+  }
+
+  async function commandsFor(name, { refresh = false } = {}) {
+    if (!panel.roles.some((r) => r.name === name)) throw new Error('找不到這個角色');
+    if (!canChat()) return [];
+    const cwd = roleCwd(name);
+    const cached = commandCache.get(name);
+    const s = sessions.get(name);
+    const fresh = cached && cached.cwd === cwd && (s ? !!s.query : Date.now() - cached.at < COMMANDS_TTL_MS);
+    if (fresh && !refresh) return cached.list;
+    if (commandQueries.has(name)) return commandQueries.get(name);
+    const job = (async () => {
+      const raw = s ? await s.commands() : null;
+      if (raw) return setCommands(name, raw, { push: false });
+      const list = await listCommands({ loadQuery, options: buildQueryOptions({ mode: panel.authMode, apiKey: keys.get() }), cwd });
+      commandCache.set(name, { cwd, at: Date.now(), list });
+      return list;
+    })().finally(() => { commandQueries.delete(name); });
+    commandQueries.set(name, job);
+    return job;
+  }
+
   /** session 事件 → 更新紀錄並轉送聊天視窗 */
   function onEvent(name, ev) {
+    if (ev.type === 'commands_raw') {
+      setCommands(name, ev.commands);
+      return;
+    }
+    if (ev.type === 'ready') refreshFromSession(name).catch(() => {});
     if (ev.type === 'error' || (ev.type === 'result' && ev.isError)) {
       // 聊天時遇到本機登入失效：記在記憶體，設定頁據此顯示「登入 Claude」
       if (panel.authMode === 'claudeCode' && isLoginError(ev.message) && !localAuthFailed) {
@@ -534,6 +588,9 @@ function setupAgents(deps) {
       return !!r.autoApprove;
     },
 
+    /** 可用的斜線指令（skill、自訂指令與內建指令），聊天視窗輸入 / 時顯示 */
+    commands: (name, refresh = false) => commandsFor(name, { refresh: !!refresh }),
+
     /** answers 只用於 AskUserQuestion 題目卡片：題目文字 → 答案 */
     answer(name, id, decision, answers) {
       const s = sessions.get(name);
@@ -548,6 +605,7 @@ function setupAgents(deps) {
       panel.authMode = mode;
       savePanel();
       for (const [name] of sessions) closeSession(name); // 換一份憑證重新啟動，對話會接續
+      commandCache.clear(); // 不同帳號可用的指令可能不同
       broadcastState();
       handoffs.drainAll();
       return true;
@@ -589,6 +647,7 @@ function setupAgents(deps) {
       if (!r.ok) return r;
       keys.set(k);
       for (const [name] of sessions) closeSession(name); // 用新金鑰重新啟動
+      commandCache.clear();
       broadcastState();
       handoffs.drainAll();
       return { ok: true };
