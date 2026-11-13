@@ -6,7 +6,8 @@
 <title>編輯角色</title>
 <link rel="stylesheet" href="popup.css">
 <style>
-  .form { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+  /* 上方留 4px：選中色票的外圈會超出 3.5px，太少會被捲動容器裁掉 */
+  .form { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 12px; }
   .form::-webkit-scrollbar { width: 8px; }
   .form::-webkit-scrollbar-thumb { background: var(--stroke); border-radius: 4px; }
   .look { display: flex; gap: 14px; align-items: flex-start; }
