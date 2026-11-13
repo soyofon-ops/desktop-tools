@@ -282,7 +282,7 @@ function openPopupFor(id, opts = {}) {
       sandbox: true
     }
   });
-  applyAlwaysOnTop(win, !!config.widget(id).alwaysOnTop);
+  // 彈出視窗不跟著小工具置頂，只有小工具本身依設定置頂
   p = { win, owner: id, data: opts.data ?? null };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
