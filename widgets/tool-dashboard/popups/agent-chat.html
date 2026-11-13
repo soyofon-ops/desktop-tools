@@ -145,7 +145,8 @@
   /* 「不要再詢問」開啟：只有輸入框改為紅色，提醒這個對話不會再詢問核准 */
   body.auto-approve .input-row, body.auto-approve .input-row:focus-within { border-color: #ff8a93; }
   body.auto-approve[data-theme="light"] .input-row, body.auto-approve[data-theme="light"] .input-row:focus-within { border-color: #b4232f; }
-  .auto-chip { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 9px; color: #ff8a93; border: 1px solid #ff8a93; }
+  /* 固定行高，讓標籤總高與標題同為 18px，顯示時標題列不會偏移 */
+  .auto-chip { flex: none; font-size: 11px; line-height: 14px; padding: 1px 7px; border-radius: 9px; color: #ff8a93; border: 1px solid #ff8a93; }
   body[data-theme="light"] .auto-chip { color: #b4232f; border-color: #b4232f; }
   /* 免詢問模式：送出按鈕改用紅色，提醒送出後不會再詢問 */
   body.auto-approve .send { color: #ff8a93; border-color: #ff8a93; background: color-mix(in srgb, #ff8a93 14%, transparent); }
