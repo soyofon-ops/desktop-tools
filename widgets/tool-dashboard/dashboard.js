@@ -732,18 +732,21 @@ function goToAgentPage(p) {
   syncAgentArrows();
 }
 
-/** 其他頁有角色等待核准，或有還沒看的回覆結果時，在該方向的箭頭與面板上提示 */
+/** 符合 pick 條件、且等待核准或有還沒看的回覆結果的角色提示 */
+function agentAlerts(pick = () => true) {
+  return agentState.roles
+    .filter((r, i) => pick(agentPageOf(i)))
+    .map((r) => ({ state: r.state, attn: agentAttention.get(r.name) }))
+    .filter(({ state, attn }) => state === 'waiting' || (attn && attn.sticky));
+}
+
+/** 其他頁有角色提示時在該方向的箭頭顯示紅點；任何角色有提示時在面板顯示三條線 */
 function syncAgentArrows() {
-  let alerting = false;
-  let danger = false;
   for (const [el, label, onSide] of [
     [els.agentsPrev, '上一頁', (p) => p < agentPage],
     [els.agentsNext, '下一頁', (p) => p > agentPage],
   ]) {
-    const alerts = agentState.roles
-      .filter((r, i) => onSide(agentPageOf(i)))
-      .map((r) => ({ state: r.state, attn: agentAttention.get(r.name) }))
-      .filter(({ state, attn }) => state === 'waiting' || (attn && attn.sticky));
+    const alerts = agentAlerts(onSide);
     const failed = alerts.some(({ attn }) => attn && attn.kind === 'error');
     // 只有不需確認的完成時，紅點改為綠色；有失敗、等待核准或待確認時維持紅／橘
     const onlyDone = alerts.length > 0 && alerts.every(({ state, attn }) => state !== 'waiting' && attn && attn.kind === 'done');
@@ -753,12 +756,11 @@ function syncAgentArrows() {
     el.classList.toggle('alert-ok', onlyDone);
     el.dataset.tip = text;
     el.setAttribute('aria-label', text);
-    alerting = alerting || alerts.length > 0;
-    danger = danger || failed;
   }
-  // 面板不會重建，只切換 class，角色狀態更新時動畫不會重播
-  els.agents.classList.toggle('alerting', alerting);
-  els.agents.classList.toggle('alert-danger', danger);
+  // 面板提示看所有角色（包含目前這頁）；面板不會重建，只切換 class，角色狀態更新時動畫不會重播
+  const all = agentAlerts();
+  els.agents.classList.toggle('alerting', all.length > 0);
+  els.agents.classList.toggle('alert-danger', all.some(({ attn }) => attn && attn.kind === 'error'));
 }
 
 [els.agentsPrev, els.agentsNext].forEach(bindTip);
