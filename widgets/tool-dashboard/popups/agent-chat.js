@@ -121,23 +121,60 @@ function aiBubble(text, streaming) {
   return div;
 }
 
+/** 連續的工具動作收成一組，預設收合；展開與否由使用者決定，之後的新動作不會改變 */
 function toolsGroup() {
   const last = els.messages.lastElementChild;
   if (last && last.classList.contains('tools')) return last;
   clearEmpty();
-  const g = document.createElement('div');
-  g.className = 'tools';
+  const g = document.createElement('details');
+  g.className = 'tools running';
+  g.innerHTML = `<summary class="tools-sum">${ICON.run}${ICON.done}${ICON.err}<span class="tools-title"></span></summary><div class="tools-body"></div>`;
   els.messages.appendChild(g);
   return g;
+}
+
+/** 進行中的收合標題：依最新的動作換成口語的說法 */
+const TOOL_BUSY_TEXT = {
+  讀取: '正在翻翻檔案…',
+  尋找檔案: '正在翻翻檔案…',
+  搜尋: '正在找找看…',
+  搜尋網路: '正在上網查資料…',
+  讀取網頁: '正在上網查資料…',
+  修改: '正在動手修改…',
+  建立檔案: '正在動手修改…',
+  執行: '正在跑指令…',
+  交給子代理: '正在找幫手…'
+};
+
+function updateToolsSummary(group) {
+  if (!group) return;
+  const lines = [...group.querySelectorAll('.tool-line')];
+  const running = lines.filter((l) => l.classList.contains('running'));
+  const failed = lines.filter((l) => l.classList.contains('error')).length;
+  const state = running.length ? 'running' : failed ? 'error' : 'done';
+  group.classList.remove('running', 'done', 'error');
+  group.classList.add(state);
+  let text;
+  if (state === 'running') text = TOOL_BUSY_TEXT[running[running.length - 1].dataset.verb] || '正在思考中…';
+  else text = failed ? `做了 ${lines.length} 件事，有 ${failed} 件沒成功` : `做了 ${lines.length} 件事`;
+  group.querySelector('.tools-title').textContent = text;
+}
+
+function setToolStatus(line, status) {
+  line.className = `tool-line ${status}`;
+  updateToolsSummary(line.closest('.tools'));
 }
 
 function addTool(t) {
   const line = document.createElement('div');
   line.className = `tool-line ${t.status || 'running'}`;
   line.dataset.id = t.id;
+  line.dataset.verb = t.verb || '';
   line.innerHTML = `${ICON.run}${ICON.done}${ICON.err}<span>${esc(t.verb)}</span><span class="detail">${esc(t.detail || '')}</span>`;
   line.title = `${t.verb} ${t.detail || ''}`;
-  toolsGroup().appendChild(line);
+  const group = toolsGroup();
+  group.querySelector('.tools-body').appendChild(line);
+  updateToolsSummary(group);
 }
 
 function addPermission(p) {
@@ -361,7 +398,7 @@ function onEvent({ name: n, event: ev, cost, model }) {
     case 'tool': endStream(); addTool({ ...ev, status: 'running' }); break;
     case 'tool_done': {
       const line = els.messages.querySelector(`.tool-line[data-id="${CSS.escape(ev.id)}"]`);
-      if (line) line.className = `tool-line ${ev.isError ? 'error' : 'done'}`;
+      if (line) setToolStatus(line, ev.isError ? 'error' : 'done');
       break;
     }
     case 'permission': endStream(); addPermission(ev); break;
@@ -384,7 +421,7 @@ function onEvent({ name: n, event: ev, cost, model }) {
     case 'result':
       endStream();
       setStatus('');
-      els.messages.querySelectorAll('.tool-line.running').forEach((l) => { l.className = 'tool-line done'; });
+      els.messages.querySelectorAll('.tool-line.running').forEach((l) => setToolStatus(l, 'done'));
       if (ev.isError && ev.message) addError(ev.message);
       break;
     case 'error': endStream(); setStatus(''); addError(ev.message); break;
