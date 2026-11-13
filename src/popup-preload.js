@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('popup', {
   copyText: (text) => ipcRenderer.invoke('popup:copy-text', text),
   /** 讀取系統剪貼簿文字 */
   readText: () => ipcRenderer.invoke('popup:read-text'),
+  /** 讀取系統剪貼簿圖片（data URL；沒有圖片時為 null，只有聊天視窗可用） */
+  readImage: () => ipcRenderer.invoke('popup:read-image'),
+  /** 另開視窗放大圖片：{ src, alt, width, height, theme }（只有聊天視窗可用） */
+  openImage: (opts) => ipcRenderer.invoke('popup:open-image', opts),
   close: () => ipcRenderer.send('popup:close')
 });
 

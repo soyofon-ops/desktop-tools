@@ -13,9 +13,17 @@ const {
 } = require('./runtime');
 const { HANDOFF_TOOL, routingPrompt, handoffMessage, createHandoffs, handoffServer } = require('./handoff');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
+const { createChatImages, imagesOf, MAX_IMAGES } = require('./chat-images');
 
 const AUTH_MODES = ['apiKey', 'claudeCode'];
 const MAX_HISTORY = 300;
+// 附加在角色設定後面：讓角色知道可以在聊天視窗顯示圖片（只在執行時加入，不寫回子代理檔案）
+const IMAGE_HINT = [
+  '',
+  '',
+  '# 在聊天視窗顯示圖片（由 Soyofon Desktop Tools 附加）',
+  '需要讓使用者看畫面或圖片時（例如設計稿、截圖、圖表），先把圖片存成檔案，再在回覆中用 Markdown 圖片語法 `![說明](圖片的絕對路徑)` 顯示；網路上的圖片可直接用 https 網址。支援 png、jpg、gif、webp、bmp，路徑含空白時用 `![說明](<路徑>)`。使用者點圖片可以另開視窗放大。'
+].join('\n');
 const MASCOTS = ['blob', 'robot', 'cat', 'ghost', 'drop', 'cloud', 'owl', 'bear'];
 
 /** 「可用工具」選項與 Claude Code 工具名稱的對應 */
@@ -60,12 +68,14 @@ function setupAgents(deps) {
     getTheme = () => 'dark', openPath = async () => {}, powerMonitor = null,
     localAuthStatus = async () => ({ ok: false, loggedIn: false, error: '無法檢查' }),
     localAuthLogin = defaultLocalAuthLogin,
-    listCommands = defaultListCommands
+    listCommands = defaultListCommands,
+    nativeImage = null
   } = deps;
   const agentsDir = files.agentsDir(homeDir);
   const panelFile = path.join(userDataDir, 'agents.json');
   const chatsDir = path.join(userDataDir, 'agent-chats');
   // 保留原名的角色可能含 / 等不能當檔名的字元，編碼後才不會寫到其他路徑
+  const images = createChatImages({ dir: path.join(chatsDir, 'images'), nativeImage });
   const chatFile = (name) => path.join(chatsDir, `${String(name).replace(/[\\/:*?"<>|%]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)}.json`);
   const keys = createKeyStore({ dir: userDataDir, safeStorage, fetch });
   let localAuthFailed = false; // 聊天時遇到本機登入失效（只存在記憶體）
@@ -168,6 +178,20 @@ function setupAgents(deps) {
     } catch (err) {
       console.error('儲存對話紀錄失敗', err);
     }
+  }
+
+  /** 紀錄只存圖片檔名，交給聊天視窗時換成絕對路徑 */
+  function withImagePaths(item) {
+    if (!Array.isArray(item.images)) return item;
+    return { ...item, images: item.images.map((n) => images.fullPath(n)).filter(Boolean) };
+  }
+
+  /** 對話清除後刪掉它的圖片；同一張圖也出現在其他角色的對話時保留 */
+  function removeChatImages(names, exceptName) {
+    if (!names.length) return;
+    const inUse = new Set();
+    for (const r of panel.roles) if (r.name !== exceptName) for (const n of imagesOf(historyOf(r.name).items)) inUse.add(n);
+    images.removeUnused(names, inUse);
   }
 
   // ---- 斜線指令（聊天視窗輸入 / 時的選單） ----
@@ -301,7 +325,7 @@ function setupAgents(deps) {
       definition: {
         ...files.sdkExtras(def),
         description: def.description,
-        prompt: def.prompt,
+        prompt: `${def.prompt || ''}${IMAGE_HINT}`,
         // 限定工具的角色也要看得到轉派工具（只在執行時加入，不寫回子代理檔案）
         ...(def.tools ? { tools: [...def.tools, HANDOFF_TOOL] } : {}),
         ...(def.model ? { model: def.model } : {})
@@ -518,8 +542,10 @@ function setupAgents(deps) {
       if (!imported) await files.remove(agentsDir, name, { trash });
       panel.roles = panel.roles.filter((r) => r.name !== name);
       delete panel.sessions[name];
+      const oldImages = imagesOf(historyOf(name).items);
       histories.delete(name);
       try { fs.unlinkSync(chatFile(name)); } catch { /* 沒有紀錄 */ }
+      removeChatImages(oldImages, name);
       handoffs.resetChain(name);
       savePanel();
       reloadDefs();
@@ -541,19 +567,25 @@ function setupAgents(deps) {
     history(name) {
       const h = historyOf(name);
       const s = sessions.get(name);
-      const items = s ? h.items : h.items.filter((i) => !isPendingCard(i));
+      const items = (s ? h.items : h.items.filter((i) => !isPendingCard(i))).map(withImagePaths);
       return { items, cost: h.cost, model: h.model, state: s ? s.state : 'idle' };
     },
 
-    async send(name, text) {
+    /** imageData：聊天視窗附加的圖片（data URL），最多 MAX_IMAGES 張 */
+    async send(name, text, imageData = []) {
       if (!canChat()) throw new Error('請先設定 API Key，或改用本機 Claude Code 登入');
       const t = String(text || '').trim();
-      if (!t) return false;
+      const list = Array.isArray(imageData) ? imageData : [];
+      if (list.length > MAX_IMAGES) throw new Error(`一則訊息最多附加 ${MAX_IMAGES} 張圖片`);
+      if (!t && !list.length) return false;
+      if (!panel.roles.some((r) => r.name === name)) throw new Error('找不到這個角色');
+      const saved = list.map((d) => images.save(d));
       handoffs.resetChain(name); // 使用者直接交辦的是新工作，轉派鏈重新計算
-      historyOf(name).items.push({ role: 'user', text: t });
-      broadcast('agents:event', { name, event: { type: 'user', text: t } });
+      const item = { role: 'user', text: t, ...(saved.length ? { images: saved.map((i) => i.name) } : {}) };
+      historyOf(name).items.push(item);
+      broadcast('agents:event', { name, event: { type: 'user', ...withImagePaths(item) } });
       try {
-        await sessionFor(name).send(t);
+        await sessionFor(name).send(t, saved);
       } catch (err) {
         onEvent(name, { type: 'error', message: String((err && err.message) || err).slice(0, 300) });
       }
@@ -570,8 +602,10 @@ function setupAgents(deps) {
       closeSession(name);
       handoffs.resetChain(name);
       delete panel.sessions[name];
+      const old = imagesOf(historyOf(name).items);
       histories.set(name, { items: [], cost: null, model: null });
       saveHistory(name);
+      removeChatImages(old, name);
       savePanel();
       broadcastState();
       return true;

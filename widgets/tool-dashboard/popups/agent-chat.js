@@ -22,6 +22,7 @@ let busy = false;
 let stickToBottom = true;
 let streamEl = null;  // 串流中的回覆
 let streamText = '';
+let attachments = []; // 準備送出的圖片：{ dataUrl }
 
 const esc = window.escapeHtml;
 
@@ -66,7 +67,7 @@ function setBusy(state) {
 }
 
 function updateSend() {
-  els.send.disabled = !els.input.value.trim();
+  els.send.disabled = !els.input.value.trim() && !attachments.length;
 }
 
 // ---- 對話內容 ----
@@ -90,11 +91,32 @@ function clearEmpty() {
   if (e) e.remove();
 }
 
-function addUser(text) {
+/** @param {string[]} [images] 附加圖片的本機絕對路徑 */
+function addUser(text, images) {
   clearEmpty();
   const div = document.createElement('div');
   div.className = 'msg-user';
-  div.textContent = text;
+  if (Array.isArray(images) && images.length) {
+    const box = document.createElement('div');
+    box.className = 'user-imgs';
+    for (const file of images) {
+      const img = document.createElement('img');
+      img.className = 'chat-img';
+      img.src = window.localImageSrc(file);
+      img.alt = '附加的圖片';
+      img.title = '點擊放大';
+      box.appendChild(img);
+    }
+    div.appendChild(box);
+    if (text) {
+      const t = document.createElement('div');
+      t.className = 'user-text';
+      t.textContent = text;
+      div.appendChild(t);
+    }
+  } else {
+    div.textContent = text;
+  }
   els.messages.appendChild(div);
 }
 
@@ -341,7 +363,7 @@ function renderHistory(h) {
   streamEl = null;
   streamText = '';
   for (const it of h.items) {
-    if (it.role === 'user') addUser(it.text);
+    if (it.role === 'user') addUser(it.text, it.images);
     else if (it.role === 'handoff') addHandoff(it.from, it.text);
     else if (it.role === 'assistant') {
       const el = aiBubble(it.text, !!it.streaming);
@@ -372,7 +394,7 @@ function onEvent({ name: n, event: ev, cost, model }) {
       setCost(null);
       showEmpty();
       break;
-    case 'user': addUser(ev.text); stickToBottom = true; break;
+    case 'user': addUser(ev.text, ev.images); stickToBottom = true; break;
     case 'handoff': endStream(); addHandoff(ev.from, ev.text); stickToBottom = true; break;
     case 'delta':
       streamText += ev.text;
@@ -453,16 +475,153 @@ els.messages.addEventListener('click', async (e) => {
   setTimeout(() => { btn.textContent = old; }, 1200);
 });
 
+// ---- 圖片：點擊放大、載入失敗時改顯示文字、載入後維持捲到底 ----
+els.messages.addEventListener('click', (e) => {
+  const img = e.target.closest('.chat-img');
+  if (!img) return;
+  window.popup.openImage({
+    src: img.currentSrc || img.src,
+    alt: img.alt,
+    width: img.naturalWidth,
+    height: img.naturalHeight,
+    theme: document.body.dataset.theme
+  });
+});
+els.messages.addEventListener('error', (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.classList.contains('chat-img')) return;
+  const span = document.createElement('span');
+  span.className = 'img-broken';
+  span.textContent = `無法顯示圖片${img.alt && img.alt !== '附加的圖片' ? `：${img.alt}` : ''}`;
+  img.replaceWith(span);
+}, true);
+els.messages.addEventListener('load', (e) => {
+  if (e.target instanceof HTMLImageElement) scrollToEnd();
+}, true);
+
+// ---- 附加圖片：貼上、拖曳或按貼上按鈕 ----
+const MAX_ATTACH = 5;
+const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
+const attachEl = $('attach');
+const dropHint = $('drop-hint');
+
+function renderAttachments() {
+  attachEl.hidden = !attachments.length;
+  attachEl.textContent = '';
+  attachments.forEach((a, i) => {
+    const item = document.createElement('div');
+    item.className = 'attach-item';
+    const img = document.createElement('img');
+    img.src = a.dataUrl;
+    img.alt = `附加的圖片 ${i + 1}`;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'attach-del';
+    del.title = '移除這張圖片';
+    del.setAttribute('aria-label', `移除附加的圖片 ${i + 1}`);
+    del.innerHTML = '<svg class="icon" width="10" height="10" viewBox="0 0 24 24" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => {
+      attachments.splice(i, 1);
+      renderAttachments();
+      els.input.focus();
+    });
+    item.append(img, del);
+    attachEl.appendChild(item);
+  });
+  if (attachments.length >= MAX_ATTACH) {
+    const note = document.createElement('span');
+    note.className = 'attach-note';
+    note.textContent = `最多 ${MAX_ATTACH} 張`;
+    attachEl.appendChild(note);
+  }
+  updateSend();
+}
+
+/** 加入一張圖片；超過張數時回傳 false */
+function addAttachment(dataUrl) {
+  if (!dataUrl || !/^data:image\//.test(dataUrl)) return false;
+  if (attachments.length >= MAX_ATTACH) {
+    addError(`一則訊息最多附加 ${MAX_ATTACH} 張圖片`);
+    return false;
+  }
+  attachments.push({ dataUrl });
+  renderAttachments();
+  return true;
+}
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+async function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    if (f.size > MAX_ATTACH_BYTES) { addError(`圖片「${f.name || '未命名'}」超過 20 MB，無法附加`); continue; }
+    try {
+      if (!addAttachment(await readFile(f))) break;
+    } catch {
+      addError(`無法讀取圖片「${f.name || '未命名'}」`);
+    }
+  }
+}
+
+// Ctrl / ⌘ + V：剪貼簿有圖片就附加；同時有文字時文字照常貼上
+els.input.addEventListener('paste', (e) => {
+  const dt = e.clipboardData;
+  if (!dt) return;
+  const files = [...dt.files].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) return;
+  if (!dt.getData('text/plain')) e.preventDefault();
+  addFiles(files);
+});
+
+// 拖曳圖片進視窗；dragenter / dragleave 會在子元素間觸發，用計數判斷是否真的離開
+let dragDepth = 0;
+const hasFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  dropHint.hidden = !ready || !els.keyform.hidden;
+});
+window.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = ready && els.keyform.hidden ? 'copy' : 'none';
+});
+window.addEventListener('dragleave', (e) => {
+  if (!hasFiles(e)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (!dragDepth) dropHint.hidden = true;
+});
+window.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  dropHint.hidden = true;
+  if (!ready || !els.keyform.hidden) return;
+  addFiles([...e.dataTransfer.files]);
+  els.input.focus();
+});
+
 // ---- 輸入 ----
 async function send() {
   const text = els.input.value.trim();
-  if (!text || busy) return;
+  if ((!text && !attachments.length) || busy) return;
+  const images = attachments.map((a) => a.dataUrl);
   els.input.value = '';
+  attachments = [];
+  renderAttachments();
   hideCmdMenu();
   autoSize();
   updateSend();
   try {
-    await window.agents.call('send', name, text);
+    await window.agents.call('send', name, text, images);
   } catch (err) {
     addError(err.message);
     if (/API Key/.test(err.message)) showKeyForm(true);
@@ -646,8 +805,9 @@ els.input.addEventListener('keydown', (e) => {
 els.send.addEventListener('click', send);
 els.stop.addEventListener('click', () => window.agents.call('stop', name));
 els.paste.addEventListener('click', async () => {
-  const text = await window.popup.readText();
-  if (!text) return;
+  const [image, text] = await Promise.all([window.popup.readImage(), window.popup.readText()]);
+  if (image) addAttachment(image);
+  if (!text) { els.input.focus(); return; }
   const { selectionStart: a, selectionEnd: b, value } = els.input;
   els.input.value = value.slice(0, a) + text + value.slice(b);
   els.input.selectionStart = els.input.selectionEnd = a + text.length;
@@ -757,6 +917,8 @@ async function load(data) {
   if (changed) {
     els.confirm.hidden = true;
     els.input.value = '';
+    attachments = [];
+    renderAttachments();
     autoSize();
     resetCommands();
     renderHistory(await window.agents.call('history', name));

@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, safeStorage, net, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, safeStorage, net, powerMonitor, protocol, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { fileURLToPath } = require('url');
 const config = require('./config');
 const db = require('./database');
 const { pickColor } = require('./color-picker');
@@ -12,6 +13,11 @@ const agentsRuntime = require('./agents/runtime');
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
+
+// 聊天視窗顯示本機圖片用的協定：chat-image://img/?p=<絕對路徑或 file:// 網址>
+// 只註冊在聊天視窗與圖片檢視視窗專用的 session，其他小工具無法使用
+protocol.registerSchemesAsPrivileged([{ scheme: 'chat-image', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+const CHAT_PARTITION = 'agent-chat';
 
 const ROOT = path.join(__dirname, '..');
 const BUILTIN_WIDGETS_DIR = path.join(ROOT, 'widgets');
@@ -260,6 +266,7 @@ function openPopupFor(id, opts = {}) {
 
   const ob = ownerWin.getBounds();
   const pos = popupPosition({ x: ob.x, y: ob.y, width: manifest.width, height: manifest.height }, w, h);
+  const chatImages = isChatPage(id, file);
   const win = new BrowserWindow({
     ...pos,
     width: w,
@@ -279,11 +286,13 @@ function openPopupFor(id, opts = {}) {
       preload: path.join(__dirname, 'popup-preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // 聊天視窗改用專用 session，才能顯示 chat-image:// 圖片
+      ...(chatImages ? { partition: CHAT_PARTITION } : {})
     }
   });
   // 彈出視窗不跟著小工具置頂，只有小工具本身依設定置頂
-  p = { win, owner: id, data: opts.data ?? null };
+  p = { win, owner: id, data: opts.data ?? null, chatImages };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
   win.once('ready-to-show', () => { win.show(); win.focus(); });
@@ -322,6 +331,116 @@ ipcMain.handle('popup:copy-text', (e, text) => {
 ipcMain.on('popup:close', (e) => {
   const p = popupFromSender(e.sender);
   if (p) p.win.close();
+});
+
+// ---------------------------------------------------------------------------
+// 聊天視窗的圖片：讀取剪貼簿圖片、提供本機圖片、另開視窗放大
+// ---------------------------------------------------------------------------
+const DASHBOARD_POPUPS = path.join(BUILTIN_WIDGETS_DIR, 'tool-dashboard', 'popups');
+const CHAT_PAGE = path.join(DASHBOARD_POPUPS, 'agent-chat.html');
+const IMAGE_VIEWER_PAGE = path.join(DASHBOARD_POPUPS, 'image-viewer.html');
+const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' };
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_IMAGE_SRC = 30 * 1024 * 1024;
+
+/** 只有內建工具儀表盤的聊天視窗能顯示本機圖片 */
+function isChatPage(id, file) {
+  return id === 'tool-dashboard' && path.resolve(file) === path.resolve(CHAT_PAGE);
+}
+
+/** chat-image:// 的處理：只回傳圖片副檔名的本機檔案 */
+async function serveChatImage(request) {
+  let file = '';
+  try {
+    const p = new URL(request.url).searchParams.get('p') || '';
+    file = /^file:/i.test(p) ? fileURLToPath(p) : p;
+  } catch {
+    return new Response('', { status: 400 });
+  }
+  const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
+  if (!type || !path.isAbsolute(file)) return new Response('', { status: 403 });
+  try {
+    const st = await fs.promises.stat(file);
+    if (!st.isFile()) return new Response('', { status: 404 });
+    if (st.size > MAX_IMAGE_BYTES) return new Response('', { status: 413 });
+    return new Response(await fs.promises.readFile(file), { headers: { 'content-type': type } });
+  } catch {
+    return new Response('', { status: 404 });
+  }
+}
+
+function chatPopupFromSender(sender) {
+  const p = popupFromSender(sender);
+  return p && p.chatImages ? p : null;
+}
+
+// 剪貼簿圖片（沒有圖片時回傳 null）
+ipcMain.handle('popup:read-image', (e) => {
+  if (!chatPopupFromSender(e.sender)) return null;
+  const img = clipboard.readImage();
+  return img.isEmpty() ? null : img.toDataURL();
+});
+
+/** 只允許聊天視窗會產生的圖片網址 */
+function isViewableImage(src) {
+  return typeof src === 'string' && src.length <= MAX_IMAGE_SRC
+    && (/^chat-image:\/\//i.test(src) || /^https:\/\//i.test(src) || /^data:image\/[a-z0-9.+-]+;base64,/i.test(src));
+}
+
+// 另開視窗放大圖片：同一時間只開一個檢視視窗，再點其他圖片時換成新的圖片
+ipcMain.handle('popup:open-image', (e, opts = {}) => {
+  const owner = chatPopupFromSender(e.sender);
+  if (!owner || !isViewableImage(opts.src)) return false;
+  const data = { src: opts.src, alt: String(opts.alt || '').slice(0, 200), theme: opts.theme === 'light' ? 'light' : 'dark' };
+  const key = `tool-dashboard:${IMAGE_VIEWER_PAGE}`;
+  const existing = popups.get(key);
+  if (existing && !existing.win.isDestroyed()) {
+    existing.data = data;
+    existing.win.webContents.send('popup:data', data);
+    existing.win.show();
+    existing.win.focus();
+    return true;
+  }
+
+  // 依圖片原始大小開啟，最多佔工作區的 90%
+  const area = screen.getDisplayMatching(owner.win.getBounds()).workArea;
+  const clamp = (v, min, max) => Math.round(Math.min(max, Math.max(min, v)));
+  const CHROME_W = 2;
+  const CHROME_H = 48; // 標題列
+  const w = clamp((Number(opts.width) || 800) + CHROME_W, 360, area.width * 0.9);
+  const h = clamp((Number(opts.height) || 600) + CHROME_H, 260, area.height * 0.9);
+  const win = new BrowserWindow({
+    x: Math.round(area.x + (area.width - w) / 2),
+    y: Math.round(area.y + (area.height - h) / 2),
+    width: w,
+    height: h,
+    minWidth: 360,
+    minHeight: 260,
+    frame: false,
+    resizable: true,
+    maximizable: true,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    title: data.alt || '圖片',
+    backgroundColor: data.theme === 'light' ? '#f7f9fc' : '#12151b',
+    webPreferences: {
+      preload: path.join(__dirname, 'popup-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      partition: CHAT_PARTITION
+    }
+  });
+  const p = { win, owner: 'tool-dashboard', data, chatImages: false };
+  popups.set(key, p);
+  win.on('closed', () => popups.delete(key));
+  win.once('ready-to-show', () => { win.show(); win.focus(); });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (ev) => ev.preventDefault());
+  win.loadFile(IMAGE_VIEWER_PAGE);
+  return true;
 });
 
 ipcMain.on('widget:set-settings', (e, settings) => {
@@ -449,6 +568,7 @@ function startAgents() {
     openPath: (dir) => shell.openPath(dir),
     powerMonitor,
     getTheme: () => (config.widget('tool-dashboard').settings || {}).theme || 'dark',
+    nativeImage,
     loadQuery: agentsRuntime.loadQuery,
     buildQueryOptions: (auth) => agentsRuntime.buildQueryOptions(auth, { appVersion: app.getVersion() }),
     localAuthStatus: () => agentsRuntime.localAuthStatus()
@@ -721,6 +841,7 @@ app.whenReady().then(() => {
   } else {
     Menu.setApplicationMenu(null);
   }
+  session.fromPartition(CHAT_PARTITION).protocol.handle('chat-image', serveChatImage);
   discoverWidgets();
   applyAutoStart();
   startAgents();

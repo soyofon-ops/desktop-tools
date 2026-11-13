@@ -2,19 +2,50 @@
 (function () {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  /** 行內語法：`程式碼`、**粗體**、*斜體*、[文字](https://網址)、自動連結 */
+  const unesc = (s) => String(s).replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[e]));
+
+  /**
+   * 圖片來源轉成可顯示的網址；不支援的來源回傳 null
+   * - https 網址、data:image：直接使用
+   * - 本機絕對路徑（C:\…、\\主機\…、/…）或 file:// 網址：交給主程序的 chat-image:// 讀取
+   */
+  function imageSrc(raw) {
+    const s = raw.trim().replace(/^<(.+)>$/, '$1').trim();
+    if (/^https:\/\//i.test(s) || /^data:image\/[a-z0-9.+-]+;base64,/i.test(s)) return s;
+    if (/^file:\/\//i.test(s) || /^[A-Za-z]:[\\/]/.test(s) || /^\\\\[^\\]/.test(s) || /^\/[^/]/.test(s)) {
+      return `chat-image://img/?p=${encodeURIComponent(s)}`;
+    }
+    return null;
+  }
+
+  /** 本機圖片路徑轉成可顯示的網址（使用者附加的圖片用） */
+  function localImageSrc(file) {
+    return `chat-image://img/?p=${encodeURIComponent(String(file))}`;
+  }
+
+  /** 行內語法：`程式碼`、**粗體**、*斜體*、![說明](圖片)、[文字](https://網址)、自動連結 */
   function inline(text) {
     const codes = [];
+    const imgs = [];
     let s = esc(text).replace(/`([^`\n]+)`/g, (_, c) => {
       codes.push(c);
       return `\u0000${codes.length - 1}\u0000`;
+    });
+    // 圖片先換成佔位符，說明文字與網址才不會再被粗體、連結等規則處理
+    s = s.replace(/!\[([^\]\n]*)\]\((&lt;[^\n]+?&gt;|[^)\n]+)\)/g, (m, alt, raw) => {
+      const src = imageSrc(unesc(raw));
+      if (!src) return m;
+      imgs.push(`<img class="chat-img" src="${esc(src)}" alt="${alt}" title="${alt || '點擊放大'}" loading="lazy">`);
+      return `\u0001${imgs.length - 1}\u0001`;
     });
     s = s
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>')
       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
       .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
-    return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+    return s
+      .replace(/\u0001(\d+)\u0001/g, (_, i) => imgs[Number(i)])
+      .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
   }
 
   function render(md) {
@@ -84,4 +115,5 @@
 
   window.renderMarkdown = render;
   window.escapeHtml = esc;
+  window.localImageSrc = localImageSrc;
 })();

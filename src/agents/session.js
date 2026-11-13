@@ -249,7 +249,11 @@ class AgentSession {
     }
   }
 
-  async send(text) {
+  /**
+   * @param {string} text
+   * @param {{ mediaType: string, data: string }[]} [images] 附加的圖片（base64），沒有時維持純文字訊息
+   */
+  async send(text, images = []) {
     if (this.closed) throw new Error('對話已關閉');
     clearTimeout(this.idleTimer);
     if (!this.query) {
@@ -258,7 +262,14 @@ class AgentSession {
       await this.starting;
     }
     this.setState('running');
-    this.push({ type: 'user', message: { role: 'user', content: String(text) }, parent_tool_use_id: null });
+    const t = String(text);
+    const content = images.length
+      ? [
+        ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })),
+        ...(t ? [{ type: 'text', text: t }] : [])
+      ]
+      : t;
+    this.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
   }
 
   /**

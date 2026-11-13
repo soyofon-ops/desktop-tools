@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: chat-image:">
+<title>圖片</title>
+<link rel="stylesheet" href="popup.css">
+<style>
+  /* 一般視窗（非透明），不需要外圍留白與圓角陰影 */
+  body { padding: 0; }
+  .panel { border-radius: 0; box-shadow: none; }
+  .titlebar { border-bottom: 1px solid var(--stroke); padding: 8px 8px 8px 14px; }
+  .titlebar h1 { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .zoom { font-size: 11px; color: var(--muted); min-width: 40px; text-align: right; }
+  .tb-btn {
+    -webkit-app-region: no-drag; flex: none; height: 26px; min-width: 26px; padding: 0 6px; border-radius: 6px; color: var(--muted);
+    display: flex; align-items: center; justify-content: center; font-size: 11px;
+  }
+  .tb-btn:hover { background: var(--hover); color: var(--text); }
+  .stage { flex: 1; min-height: 0; position: relative; overflow: hidden; cursor: grab; user-select: none; }
+  .stage.dragging { cursor: grabbing; }
+  .stage img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; image-rendering: auto; }
+  .stage.pixel img { image-rendering: pixelated; }
+  .msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+  .hint { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); font-size: 11px; color: var(--muted); padding: 3px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--stroke); pointer-events: none; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body data-theme="dark">
+  <div class="panel">
+    <div class="titlebar">
+      <h1 id="title">圖片</h1>
+      <span class="zoom mono" id="zoom" aria-live="polite"></span>
+      <button class="tb-btn" id="fit" title="符合視窗（雙擊圖片）">符合視窗</button>
+      <button class="tb-btn" id="actual" title="原始大小">1:1</button>
+      <button class="tb-btn" id="close" title="關閉（Esc）" aria-label="關閉"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="stage" id="stage">
+      <img id="img" alt="" draggable="false">
+      <div class="msg" id="msg" hidden></div>
+      <div class="hint" id="hint">滾輪縮放 · 拖曳移動 · 雙擊符合視窗</div>
+    </div>
+  </div>
+  <script src="image-viewer.js"></script>
+</body>
+</html>
