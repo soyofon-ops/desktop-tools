@@ -232,6 +232,26 @@ function popupPosition(ownerBounds, w, h) {
   };
 }
 
+/**
+ * 顯示並聚焦彈出視窗。
+ * macOS 14 起系統可能拒絕 App 自行切換為作用中，小工具置頂（screen-saver 層級）時
+ * 彈出視窗會排到最前面卻收不到鍵盤與滑鼠事件，因此先強制讓 App 成為作用中。
+ */
+function focusPopup(win) {
+  if (!win || win.isDestroyed()) return;
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  win.show();
+  win.focus();
+  // [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除
+  console.log('[DEBUG-FOCUS] focusPopup', { title: win.getTitle(), isFocused: win.isFocused(), focused: BrowserWindow.getFocusedWindow()?.getTitle() ?? null });
+}
+
+/** [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除 */
+function debugFocus(win) {
+  win.on('focus', () => console.log('[DEBUG-FOCUS] popup focus', win.getTitle()));
+  win.on('blur', () => console.log('[DEBUG-FOCUS] popup blur', win.getTitle()));
+}
+
 ipcMain.handle('widget:open-popup', (e, opts = {}) => {
   const id = widgetIdFromSender(e.sender);
   if (!id) return false;
@@ -259,8 +279,7 @@ function openPopupFor(id, opts = {}) {
     // 已經開著：換成新資料並帶到前面
     p.data = opts.data ?? null;
     p.win.webContents.send('popup:data', p.data);
-    p.win.show();
-    p.win.focus();
+    focusPopup(p.win);
     return p.win;
   }
 
@@ -295,7 +314,8 @@ function openPopupFor(id, opts = {}) {
   p = { win, owner: id, data: opts.data ?? null, chatImages };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
-  win.once('ready-to-show', () => { win.show(); win.focus(); });
+  debugFocus(win);
+  win.once('ready-to-show', () => focusPopup(win));
   // 頁面內的連結用預設瀏覽器開啟，不在彈出視窗裡換頁
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -397,8 +417,7 @@ ipcMain.handle('popup:open-image', (e, opts = {}) => {
   if (existing && !existing.win.isDestroyed()) {
     existing.data = data;
     existing.win.webContents.send('popup:data', data);
-    existing.win.show();
-    existing.win.focus();
+    focusPopup(existing.win);
     return true;
   }
 
@@ -436,7 +455,8 @@ ipcMain.handle('popup:open-image', (e, opts = {}) => {
   const p = { win, owner: 'tool-dashboard', data, chatImages: false };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
-  win.once('ready-to-show', () => { win.show(); win.focus(); });
+  debugFocus(win);
+  win.once('ready-to-show', () => focusPopup(win));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (ev) => ev.preventDefault());
   win.loadFile(IMAGE_VIEWER_PAGE);
@@ -864,6 +884,9 @@ app.whenReady().then(() => {
 
 // 再次執行程式（例如點兩下捷徑）時開啟設定視窗
 app.on('second-instance', () => openSettings());
+// [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除
+app.on('did-become-active', () => console.log('[DEBUG-FOCUS] app did-become-active'));
+app.on('did-resign-active', () => console.log('[DEBUG-FOCUS] app did-resign-active'));
 app.on('window-all-closed', () => { /* 常駐系統匣，不因視窗全關而結束 */ });
 app.on('before-quit', () => {
   config.saveNow();
