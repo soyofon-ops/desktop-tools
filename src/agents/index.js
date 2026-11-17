@@ -16,6 +16,8 @@ const { isDue, normalizeSchedule, startScheduler, localDate } = require('./sched
 const { createChatImages, imagesOf, MAX_IMAGES } = require('./chat-images');
 
 const AUTH_MODES = ['apiKey', 'claudeCode'];
+// 隨 App 附帶的預設子代理（例如角色設計顧問 staff-bot）
+const DEFAULTS_DIR = path.join(__dirname, 'defaults');
 const MAX_HISTORY = 300;
 // 附加在角色設定後面：讓角色知道可以在聊天視窗顯示圖片（只在執行時加入，不寫回子代理檔案）
 const IMAGE_HINT = [
@@ -113,6 +115,33 @@ function setupAgents(deps) {
     panel.roles = panel.roles.filter((r) => defs.has(r.name));
     if (panel.roles.length !== before) savePanel();
   }
+
+  /**
+   * 把內建預設子代理（defaults/*.md）補進子代理資料夾，使用者再從面板「從現有子代理加入」。
+   * 每次啟動時缺少就補回，已有同名子代理時不覆蓋。
+   * 用 read/write 而不是 copy，打包成 asar 後也讀得到。
+   */
+  const defaultNames = new Set(); // 內建預設子代理的代號：從面板移除時保留檔案
+  function seedDefaults() {
+    let names = [];
+    try { names = fs.readdirSync(DEFAULTS_DIR).filter((f) => f.toLowerCase().endsWith('.md')); } catch { return; }
+    let existing = null;
+    for (const f of names) {
+      try {
+        const text = fs.readFileSync(path.join(DEFAULTS_DIR, f), 'utf8');
+        const { name } = files.parseAgent(text, f);
+        defaultNames.add(name);
+        if (!existing) existing = new Set(files.readAll(agentsDir).map((d) => d.name));
+        if (existing.has(name)) continue;
+        fs.mkdirSync(agentsDir, { recursive: true });
+        fs.writeFileSync(path.join(agentsDir, f), text, { encoding: 'utf8', flag: 'wx' }); // wx：檔案已存在時不覆蓋
+        existing.add(name);
+      } catch (err) {
+        console.error('補上預設子代理失敗', f, err);
+      }
+    }
+  }
+  seedDefaults();
   reloadDefs();
 
   // ---- 對話 ----
@@ -540,9 +569,9 @@ function setupAgents(deps) {
 
     async removeRole(name) {
       closeSession(name);
-      // 從現有子代理加入的角色只從面板移除，檔案留在子代理資料夾
+      // 從現有子代理加入的角色與內建預設子代理只從面板移除，檔案留在子代理資料夾
       const imported = !!panel.roles.find((r) => r.name === name)?.imported;
-      if (!imported) await files.remove(agentsDir, name, { trash });
+      if (!imported && !defaultNames.has(name)) await files.remove(agentsDir, name, { trash });
       panel.roles = panel.roles.filter((r) => r.name !== name);
       delete panel.sessions[name];
       const oldImages = imagesOf(historyOf(name).items);
