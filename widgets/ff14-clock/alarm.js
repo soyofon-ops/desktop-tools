@@ -274,9 +274,14 @@
       noticeCount = active.length;
       updateBellText();
     }
-    fitWindow();
+    // 只在卡片數量改變時調整視窗高度，避免每 250ms 讀 offsetHeight 強制重新排版（卡片文字不換行，高度固定）
+    if (box.children.length !== lastCardCount) {
+      lastCardCount = box.children.length;
+      fitWindow();
+    }
   }
 
+  let lastCardCount = -1; // -1：第一次 tick 一定會調整
   let lastHeight = 0;
   function fitWindow() {
     const extra = box.children.length ? box.offsetHeight + 6 + 8 : 0; // 6 = margin-top, 8 = 陰影空間
