@@ -44,6 +44,11 @@ contextBridge.exposeInMainWorld('widget', {
    */
   checkRegex: (source, flags) => ipcRenderer.invoke('widget:check-regex', source, flags),
   /**
+   * 檢查 Content Security Policy（csp_evaluator）；text 是 http(s) 網址時改抓該網址的 CSP 標頭
+   *   await widget.evaluateCSP("script-src 'self'") → { status: 'done'|'error', policies, error, url, finalUrl, from, elapsed }
+   */
+  evaluateCSP: (text) => ipcRenderer.invoke('widget:evaluate-csp', text),
+  /**
    * Claude Code 角色（工具儀表盤）：await widget.agents.call('state')、('send', name, text)…
    * 方法見 src/agents/index.js 的 api
    */

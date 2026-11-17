@@ -6,6 +6,7 @@ const config = require('./config');
 const db = require('./database');
 const { pickColor } = require('./color-picker');
 const { checkRegex } = require('./redos');
+const { evaluateCSP } = require('./csp');
 const { setupAgents } = require('./agents');
 const agentsRuntime = require('./agents/runtime');
 
@@ -208,6 +209,12 @@ ipcMain.handle('widget:pick-color', () => pickColor());
 ipcMain.handle('widget:check-regex', (e, source, flags) => {
   if (!widgetIdFromSender(e.sender)) return null;
   return checkRegex(source, flags);
+});
+
+// CSP 檢查（實作見 csp.js，使用 csp_evaluator）；文字是網址時用 net.fetch 抓回應標頭（走系統代理）
+ipcMain.handle('widget:evaluate-csp', (e, text) => {
+  if (!widgetIdFromSender(e.sender)) return null;
+  return evaluateCSP(text, (url, opts) => net.fetch(url, opts));
 });
 
 // ---------------------------------------------------------------------------

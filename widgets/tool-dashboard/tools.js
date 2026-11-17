@@ -344,5 +344,37 @@ window.TOOLS = [
       await popup({ state: 'done', ...result });
       return { ok: true, silent: true };
     }
+  },
+  {
+    id: 'csp-evaluate',
+    name: 'CSP 檢查',
+    icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 9h6"/><path d="M9 13h4"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text || !text.trim()) return { ok: false, message: '剪貼簿是空的' };
+
+      const popup = (data) => window.widget.openPopup({
+        page: 'popups/csp.html',
+        width: 480,
+        height: 600,
+        data: { ...data, input: text.trim(), theme: document.body.dataset.theme }
+      });
+
+      // 網址：先開視窗顯示「讀取中」，抓取可能要幾秒；錯誤也顯示在視窗內
+      if (/^https?:\/\/\S+$/i.test(text.trim())) {
+        await popup({ state: 'loading' });
+        const result = await window.widget.evaluateCSP(text);
+        await popup({ state: 'done', ...result });
+        return { ok: true, silent: true };
+      }
+
+      const result = await window.widget.evaluateCSP(text);
+      if (!result || result.status !== 'done') {
+        const kind = result && result.error && result.error.kind;
+        return { ok: false, message: kind === 'too-long' ? '剪貼簿內容太長，無法分析' : '剪貼簿不是 CSP 或網址' };
+      }
+      await popup({ state: 'done', ...result });
+      return { ok: true, silent: true };
+    }
   }
 ];

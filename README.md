@@ -13,7 +13,7 @@
 | 小工具    | 說明                                                                         |
 | --------- | ---------------------------------------------------------------------------- |
 | FF14 時鐘 | 顯示艾奧傑亞時間（ET）與本地時間（LT），點擊切換主要顯示的時間，選擇會被記住 |
-| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查），超過 10 個功能自動分頁；上方的角色面板可和 Claude Code 角色快速聊天，每頁 4 格（含新增按鈕），超過時自動分頁 |
+| 工具儀表盤 | 右上角的倒梯形圖示按鈕列，一鍵處理剪貼簿內容（目前有 URL 解碼、JSON 格式化、Base64 編碼／解碼、顏色吸管、JWT 解碼、ReDoS 檢查、CSP 檢查），超過 10 個功能自動分頁；上方的角色面板可和 Claude Code 角色快速聊天，每頁 4 格（含新增按鈕），超過時自動分頁 |
 
 ## 開發與打包
 
@@ -103,6 +103,10 @@ window.widget.agents.onEvent(({ name, event }) => { ... }); // 對話事件（�
 // 檢查正規表示式是否有 ReDoS 風險（recheck，在主程序執行）
 const r = await window.widget.checkRegex('^(a+)+$', '');
 // → { status: 'safe' | 'vulnerable' | 'unknown', complexity, hotspot, attack, error, elapsed }
+
+// 檢查 Content Security Policy（csp_evaluator，在主程序執行）；text 是 http(s) 網址時改抓該網址的 CSP
+const c = await window.widget.evaluateCSP("script-src 'self'");
+// → { status: 'done' | 'error', policies: [{ kind, text, directives, findings }], error, url, finalUrl, httpStatus, from, elapsed }
 ```
 
 - 拖曳與點擊會自動區分：拖曳後不會觸發 `click`，所以可以放心在小工具上綁點擊事件。
@@ -134,6 +138,7 @@ const r = await window.widget.checkRegex('^(a+)+$', '');
 | 吸管 | 顏色吸管 | 進入取色模式：畫面凍結並顯示放大鏡與即時色碼，點擊任一點把色碼（`#RRGGBB`）複製到剪貼簿，通知中以色塊顯示；Esc 或右鍵取消，剪貼簿不變。支援多螢幕與 150%／200% 縮放 |
 | 鑰匙 | JWT 解碼 | 解析剪貼簿的 JWT，在儀表盤旁開啟視窗顯示 Header、Payload（語法上色、數值原樣保留）、Signature 與有效期限（有效／已過期／尚未生效，`exp`／`iat`／`nbf` 轉成本地時間），每一段都可複製。接受 `Bearer`、引號、整行 `Authorization:` 標頭；不驗證簽章 |
 | `>_*` | ReDoS 檢查 | 剪貼簿是正規表示式（`/pattern/flags` 或直接是 pattern）時，用 [recheck](https://github.com/makenowjust-labs/recheck) 分析是否有災難性回溯，在儀表盤旁開啟視窗顯示：安全／有風險、時間複雜度（線性、多項式、指數）、pattern 中造成回溯的位置、攻擊字串（可複製 JS 產生式或完整字串）與修正方向。不是有效的正規表示式時顯示橘色提示 |
+| 盾牌 | CSP 檢查 | 用 Google 的 [csp_evaluator](https://github.com/google/csp-evaluator) 以 CSP3 規則檢查 Content Security Policy，在儀表盤旁開啟視窗，依指令列出每個來源的問題與嚴重度（高風險、語法錯誤、中風險、可能有風險、建議、資訊），包含 `'unsafe-inline'`、`*`、缺少 `object-src`／`base-uri`、已知可繞過的白名單網域（JSONP、AngularJS）等；可複製 policy 或整份檢查結果。剪貼簿可以是 policy、整行或整段回應標頭（含 `-Report-Only`，多個 policy 分開分析）、`<meta http-equiv>` 標籤；是 `http(s)` 網址時改為連線抓取該網址的 CSP 回應標頭（沒有時改找 HTML 中的 `<meta>`，10 秒逾時）。不是 CSP 時顯示橘色提示 |
 
 ### 新增功能
 
