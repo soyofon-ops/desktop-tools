@@ -9,7 +9,7 @@
 //   結束時間  時間欄位，名稱含「結束 / end」，否則第二個時間欄位
 //   啟用      （選填）是／否欄位，名稱含「啟用 / 鬧鈴 / 提醒 / enable」；為否時不提醒
 //
-// 依賴 clock.js 的 EORZEA_MULTIPLIER、pad。
+// 依賴 clock.js 的 EORZEA_MULTIPLIER、pad、clockTickers。
 (() => {
   const LEAD_MS = 3 * 60 * 1000; // 提前 3 分鐘（現實時間）
   const ET_DAY = 24 * 60 * 60 * 1000; // 艾奧傑亞一天（ET 毫秒）
@@ -164,6 +164,17 @@
     return h ? `${h}:${pad(m)}:${pad(t % 60)}` : `${m}:${pad(t % 60)}`;
   };
 
+  // 內容沒變就不寫入，避免每 250ms 重建 DOM 與重繪。
+  // textContent 直接比對畫面上的值（複製提示會另外改寫名稱）；innerHTML 與 style 讀回時會被正規化，改記住上次寫入的值
+  const written = new WeakMap();
+  function setIfChanged(target, prop, value) {
+    let cache = written.get(target);
+    if (!cache) written.set(target, (cache = {}));
+    if (prop === 'textContent' ? target.textContent === value : cache[prop] === value) return;
+    cache[prop] = value;
+    target[prop] = value;
+  }
+
   function makeCard(key) {
     const el = document.createElement('div');
     el.className = 'alarm';
@@ -239,18 +250,23 @@
       nameEl.dataset.name = name;
       if (Date.now() > +(nameEl.dataset.copiedUntil || 0)) {
         nameEl.classList.remove('copied');
-        nameEl.textContent = name;
+        setIfChanged(nameEl, 'textContent', name);
       }
-      el.querySelector('.alarm-status').textContent = upcoming
-        ? `${mmss(w.ws - now)} 後開始`
-        : `剩 ${mmss(w.we - now)}`;
-      const range = el.querySelector('.alarm-range');
+      setIfChanged(
+        el.querySelector('.alarm-status'),
+        'textContent',
+        upcoming ? `${mmss(w.ws - now)} 後開始` : `剩 ${mmss(w.we - now)}`
+      );
       const tag = w.clock === 'et' ? 'ET' : 'LT';
-      range.innerHTML = `<b class="${w.clock}">${tag}</b> ${hm(w.s)} – ${hm(w.s + ((w.e - w.s + 1440) % 1440 || 1440))}`;
+      setIfChanged(
+        el.querySelector('.alarm-range'),
+        'innerHTML',
+        `<b class="${w.clock}">${tag}</b> ${hm(w.s)} – ${hm(w.s + ((w.e - w.s + 1440) % 1440 || 1440))}`
+      );
       const fill = el.querySelector('.bar-fill');
-      fill.style.width = `${(p * 100).toFixed(2)}%`;
+      setIfChanged(fill.style, 'transform', `translateX(${((p - 1) * 100).toFixed(2)}%)`);
       // 綠（剛開始）→ 黃 → 紅（快結束）
-      fill.style.backgroundColor = `hsl(${Math.round(120 * (1 - p))}, 75%, 48%)`;
+      setIfChanged(fill.style, 'backgroundColor', `hsl(${Math.round(120 * (1 - p))}, 75%, 48%)`);
     });
 
     bell.classList.toggle('ringing', active.length > 0);
@@ -299,7 +315,7 @@
 
   if (!window.widget || !window.widget.db) return; // 一般瀏覽器預覽時沒有資料庫
   window.widget.db.onChange(() => load());
-  setInterval(tick, 250);
+  clockTickers.push(tick); // 與時鐘共用 clock.js 的計時器
   window.widget
     .getState()
     .then((s) => {

@@ -131,10 +131,15 @@
   .agent:active { transform: scale(0.94); }
   /* 天線等部件會超出 viewBox，不加 overflow 會被裁切 */
   .agent svg { display: block; pointer-events: none; overflow: visible; }
-  .agent.running { animation: agent-pulse 1.6s ease-out var(--loop-delay, 0s) infinite; }
-  @keyframes agent-pulse {
-    0% { box-shadow: 0 0 0 0 var(--ring-start); }
-    70%, 100% { box-shadow: 0 0 0 8px transparent; }
+  /* 擴散光圈放在 ::after，只動畫 transform 與 opacity，交給合成器處理，不必每格重繪 box-shadow */
+  .agent::after {
+    content: ""; position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
+    box-shadow: 0 0 0 3px var(--pulse-color, transparent); opacity: 0;
+  }
+  .agent.running::after { --pulse-color: var(--ring-start); animation: agent-pulse 1.6s ease-out var(--loop-delay, 0s) infinite; }
+  @keyframes agent-pulse { /* 放大到外擴約 8px（44px → 60px） */
+    0% { transform: scale(1); opacity: 1; }
+    70%, 100% { transform: scale(1.36); opacity: 0; }
   }
   .agent .badge { display: none; position: absolute; top: -2px; right: -2px; width: 13px; height: 13px; box-sizing: border-box; border-radius: 50%; background: var(--warn); border: 2px solid var(--shape-fill); }
   .agent.waiting .badge { display: block; }
@@ -142,16 +147,22 @@
   .agent.attn {
     --attn: var(--warn);
     border-color: var(--attn); background: color-mix(in srgb, var(--attn) 18%, transparent);
-    animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) infinite, agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite;
+    animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) infinite;
+  }
+  /* 提示光圈：所有提示狀態（含失敗、完成）都持續到看過為止 */
+  .agent.attn::after {
+    --pulse-color: color-mix(in srgb, var(--attn) 65%, transparent);
+    animation: agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite;
   }
   .agent.attn-error {
     --attn: var(--danger);
-    animation: agent-shake 1.6s ease-in-out var(--attn-delay, 0s) infinite, agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite;
+    animation: agent-shake 1.6s ease-in-out var(--attn-delay, 0s) infinite;
   }
   /* 回覆完成：彈跳 2 次就停，光圈持續到看過為止 */
-  .agent.attn-done { animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) 2, agent-attn-ring 1.6s ease-out var(--attn-delay, 0s) infinite; }
+  .agent.attn-done { animation: agent-bounce 1.6s ease-in-out var(--attn-delay, 0s) 2; }
   .agent.attn-ok { --attn: var(--ok); }
-  .agent.attn:not(.attn-sticky) { animation-iteration-count: 2; } /* 聊天視窗開著時只提示一下，總長對應 ATTN_ONCE_MS */
+  /* 聊天視窗開著時只提示一下，總長對應 ATTN_ONCE_MS */
+  .agent.attn:not(.attn-sticky), .agent.attn:not(.attn-sticky)::after { animation-iteration-count: 2; }
   .agent.attn-sticky .badge { display: block; background: var(--attn); }
   @keyframes agent-bounce {
     0%, 40%, 100% { translate: 0 0; }
@@ -159,9 +170,9 @@
     24% { translate: 0 0; }
     32% { translate: 0 -3px; }
   }
-  @keyframes agent-attn-ring {
-    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--attn) 65%, transparent); }
-    70%, 100% { box-shadow: 0 0 0 9px transparent; }
+  @keyframes agent-attn-ring { /* 放大到外擴約 9px（44px → 62px） */
+    0% { transform: scale(1); opacity: 1; }
+    70%, 100% { transform: scale(1.41); opacity: 0; }
   }
   @keyframes agent-shake {
     0%, 32%, 100% { translate: 0 0; }
@@ -371,6 +382,7 @@
   .agent-add:hover { border-color: var(--accent); color: var(--accent); }
   .agent.dragging { opacity: 0.35; }
   .agent-ghost { position: absolute; z-index: 5; pointer-events: none; transform: scale(1.1); box-shadow: 0 0 0 1px var(--c), 0 6px 12px rgba(0, 0, 0, 0.35) !important; animation: none !important; }
+  .agent-ghost::after { animation: none !important; } /* 光圈在 ::after，元素本身的 animation: none 管不到 */
   .agent-ghost.over-arrow { opacity: 0.45; transition: opacity 0.12s; }
   /* 拖曳中與不在目前頁面的按鈕不播動畫；切回頁面時由 refreshAgentTiming 重算負延遲接續 */
   .agent[inert],

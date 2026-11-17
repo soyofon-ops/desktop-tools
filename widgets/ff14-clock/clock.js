@@ -21,12 +21,17 @@ const els = {
 };
 
 let mode = 'et'; // 'et' | 'lt'
+let lastRendered = ''; // 上次寫入畫面的內容，相同時跳過以免無謂重繪
 
 function render() {
   const now = new Date();
   const et = eorzeaTime(now.getTime());
   const etText = `${pad(et.h)}:${pad(et.m)}`;
   const ltText = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const key = `${mode}|${etText}|${ltText}`;
+  if (key === lastRendered) return;
+  lastRendered = key;
 
   if (mode === 'et') {
     els.label.textContent = '艾奧傑亞時間';
@@ -55,8 +60,18 @@ els.panel.addEventListener('click', () => {
   window.widget && window.widget.saveSettings({ mode });
 });
 
+// 時鐘與鬧鈴共用的單一計時器；alarm.js 會把自己的 tick 加進來
 // ET 每 ~2.9 秒走一分鐘，用 250ms 更新足夠即時
-setInterval(render, 250);
+const clockTickers = [render];
+setInterval(() => {
+  for (const fn of clockTickers) {
+    try {
+      fn();
+    } catch (err) {
+      console.error('時鐘更新失敗', err); // 單一函式出錯不影響其他更新
+    }
+  }
+}, 250);
 
 (async () => {
   try {
