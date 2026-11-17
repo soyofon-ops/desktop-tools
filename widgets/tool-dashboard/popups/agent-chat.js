@@ -340,6 +340,36 @@ function addQuestion(q) {
   if (document.hasFocus()) card.querySelector('[data-d="skip"]').focus({ preventScroll: true });
 }
 
+/** 題目卡片回答（或略過）後留下的紀錄：直接顯示在對話中，不收進工具的收合區塊 */
+function addAnswered(a) {
+  clearEmpty();
+  const div = document.createElement('div');
+  div.className = `msg-answer${a.skipped ? ' skipped' : ''}`;
+  const label = document.createElement('div');
+  label.className = 'answer-label';
+  label.textContent = a.skipped ? '已略過問題' : '你的回答';
+  div.appendChild(label);
+  for (const it of Array.isArray(a.items) ? a.items : []) {
+    const q = document.createElement('div');
+    q.className = 'answer-q';
+    if (it.header) {
+      const tag = document.createElement('span');
+      tag.className = 'answer-tag';
+      tag.textContent = it.header;
+      q.appendChild(tag);
+    }
+    q.append(it.question || '');
+    div.appendChild(q);
+    if (!a.skipped) {
+      const ans = document.createElement('div');
+      ans.className = 'answer-a';
+      ans.textContent = it.answer || '';
+      div.appendChild(ans);
+    }
+  }
+  els.messages.appendChild(div);
+}
+
 function addError(text) {
   clearEmpty();
   const div = document.createElement('div');
@@ -371,6 +401,7 @@ function renderHistory(h) {
     } else if (it.role === 'tool') addTool(it);
     else if (it.role === 'permission') addPermission(it);
     else if (it.role === 'question') addQuestion(it);
+    else if (it.role === 'answered') addAnswered(it);
     else if (it.role === 'error') addError(it.text);
   }
   setCost(h.cost);
@@ -425,6 +456,7 @@ function onEvent({ name: n, event: ev, cost, model }) {
     }
     case 'permission': endStream(); addPermission(ev); break;
     case 'question': endStream(); addQuestion(ev); break;
+    case 'answered': endStream(); addAnswered(ev); stickToBottom = true; break;
     case 'permission_done': {
       // 工具核准與題目卡片都用 .perm，一起處理
       const card = els.messages.querySelector(`.perm[data-id="${CSS.escape(ev.id)}"]`);

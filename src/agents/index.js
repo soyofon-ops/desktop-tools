@@ -281,6 +281,9 @@ function setupAgents(deps) {
       case 'question':
         h.items.push({ role: 'question', id: ev.id, questions: ev.questions });
         break;
+      case 'answered':
+        h.items.push({ role: 'answered', skipped: !!ev.skipped, items: ev.items || [] });
+        break;
       case 'permission_done': {
         const i = h.items.findIndex((x) => isPendingCard(x) && x.id === ev.id);
         if (i >= 0) h.items.splice(i, 1);

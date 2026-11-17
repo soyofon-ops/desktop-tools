@@ -366,6 +366,17 @@ class AgentSession {
       result = { behavior: 'deny', message: '使用者拒絕了這個動作。請不要重試，改問使用者要怎麼做。' };
     }
     this.pending.delete(id);
+    if (p.kind === 'question') {
+      // 回答（或略過）的內容留在對話中顯示，不隨卡片一起消失
+      const skipped = decision !== 'answer';
+      const answers = skipped ? {} : result.updatedInput.answers;
+      this.emit({
+        type: 'answered',
+        id,
+        skipped,
+        items: questionCard(p.input).map((q) => ({ header: q.header, question: q.question, answer: answers[q.question] || '' }))
+      });
+    }
     this.emit({ type: 'permission_done', id, decision });
     if (!this.pending.size) this.setState('running');
     p.resolve(result);
