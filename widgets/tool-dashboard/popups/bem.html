@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>BEM 檢查</title>
+<link rel="stylesheet" href="popup.css">
+<style>
+  /* 命名慣例切換 */
+  .conv { display: flex; gap: 4px; margin: 0 14px 8px; padding: 3px; border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke); }
+  .conv button { flex: 1; height: 34px; border-radius: 6px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15; }
+  .conv button small { font-size: 10px; opacity: 0.8; font-family: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace; }
+  .conv button:hover { color: var(--text); background: var(--hover); }
+  .conv button[aria-pressed="true"] { color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 1px var(--accent); }
+
+  /* 結果摘要 */
+  .status {
+    display: flex; align-items: center; gap: 8px; margin: 0 14px 10px; padding: 7px 10px;
+    border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke); font-size: 12px;
+  }
+  .status .badge { font-weight: 600; white-space: nowrap; }
+  .status .detail { color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .status.bad { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+  .status.bad .badge { color: var(--warn); }
+  .status.bad .dot { background: var(--warn); box-shadow: none; }
+  .status.ok .badge { color: var(--accent); }
+
+  /* 不符合的項目 */
+  .bad-list { display: flex; flex-direction: column; gap: 6px; }
+  .item { padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--stroke); display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .name { font-size: 12px; word-break: break-all; user-select: text; }
+  .name.from { color: var(--warn); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+  .name.to { color: var(--accent); flex: 1; }
+  .name.alt { color: var(--text); }
+  .arrow { color: var(--muted); flex: none; }
+  .line { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .manual { color: var(--muted); font-size: 12px; flex: 1; }
+  .issues { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--muted); }
+  .issues li::before { content: "・"; color: var(--warn); }
+  .alts { display: flex; flex-direction: column; gap: 3px; padding-top: 4px; border-top: 1px dashed var(--stroke); }
+  .alts .note { flex: 1; text-align: right; }
+  .item .copy { height: 22px; padding: 0 6px; flex: none; }
+
+  /* 符合的項目：精簡列出 */
+  .ok-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ok-list .chip { font-size: 11.5px; color: var(--text); user-select: text; }
+  .empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+  section[hidden], .copy[hidden] { display: none; }
+</style>
+</head>
+<body data-theme="dark">
+  <div class="panel">
+    <div class="titlebar">
+      <h1>BEM 檢查</h1>
+      <div class="chips" id="chips"></div>
+      <button class="close" id="close" aria-label="關閉" title="關閉（Esc）">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="conv" id="conv" role="group" aria-label="命名慣例"></div>
+
+    <div class="status" id="status" role="status">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="badge" id="badge"></span>
+      <span class="detail" id="detail"></span>
+    </div>
+
+    <div class="content">
+      <section id="sec-bad">
+        <div class="sec-head"><h2>不符合<span class="sub">原名稱 → 建議名稱</span></h2></div>
+        <div class="bad-list" id="bad-list"></div>
+      </section>
+      <section id="sec-ok">
+        <div class="sec-head"><h2>符合</h2></div>
+        <div class="ok-list" id="ok-list"></div>
+      </section>
+      <p class="note">建議名稱依規則推測（例如 camelCase 無法判斷哪段是 block、哪段是元素），請確認後再使用。</p>
+    </div>
+
+    <div class="footer">
+      <button class="copy" id="copy-map"><svg class="icon cp" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><svg class="icon ok" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>複製對照表</span></button>
+    </div>
+  </div>
+  <script src="bem.js"></script>
+</body>
+</html>

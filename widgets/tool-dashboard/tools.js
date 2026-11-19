@@ -376,5 +376,24 @@ window.TOOLS = [
       await popup({ state: 'done', ...result });
       return { ok: true, silent: true };
     }
+  },
+  {
+    id: 'bem-check',
+    name: 'BEM 檢查',
+    icon: '<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="10" height="6" rx="1.5"/><path d="M16 17l2 2 3-4"/>',
+    async run() {
+      const text = await window.widget.readText();
+      if (!text || !text.trim()) return { ok: false, message: '剪貼簿是空的' };
+      // 邏輯在 bem-lint.js（window.BEM）；三種慣例一次算好，視窗內切換不必重算
+      const result = window.BEM.analyze(text);
+      if (!result.items.length) return { ok: false, message: '剪貼簿沒有 class 名稱' };
+      await window.widget.openPopup({
+        page: 'popups/bem.html',
+        width: 480,
+        height: 640,
+        data: { ...result, conventions: window.BEM.CONVENTIONS, theme: document.body.dataset.theme }
+      });
+      return { ok: true, silent: true }; // 結果顯示在彈出視窗，不另外跳通知
+    }
   }
 ];
