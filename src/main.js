@@ -249,14 +249,6 @@ function focusPopup(win) {
   if (process.platform === 'darwin') app.focus({ steal: true });
   win.show();
   win.focus();
-  // [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除
-  console.log('[DEBUG-FOCUS] focusPopup', { title: win.getTitle(), isFocused: win.isFocused(), focused: BrowserWindow.getFocusedWindow()?.getTitle() ?? null });
-}
-
-/** [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除 */
-function debugFocus(win) {
-  win.on('focus', () => console.log('[DEBUG-FOCUS] popup focus', win.getTitle()));
-  win.on('blur', () => console.log('[DEBUG-FOCUS] popup blur', win.getTitle()));
 }
 
 ipcMain.handle('widget:open-popup', (e, opts = {}) => {
@@ -321,7 +313,6 @@ function openPopupFor(id, opts = {}) {
   p = { win, owner: id, data: opts.data ?? null, chatImages };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
-  debugFocus(win);
   win.once('ready-to-show', () => focusPopup(win));
   // 頁面內的連結用預設瀏覽器開啟，不在彈出視窗裡換頁
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -462,7 +453,6 @@ ipcMain.handle('popup:open-image', (e, opts = {}) => {
   const p = { win, owner: 'tool-dashboard', data, chatImages: false };
   popups.set(key, p);
   win.on('closed', () => popups.delete(key));
-  debugFocus(win);
   win.once('ready-to-show', () => focusPopup(win));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (ev) => ev.preventDefault());
@@ -891,9 +881,6 @@ app.whenReady().then(() => {
 
 // 再次執行程式（例如點兩下捷徑）時開啟設定視窗
 app.on('second-instance', () => openSettings());
-// [DEBUG-FOCUS] 暫時的焦點記錄，確認修正後移除
-app.on('did-become-active', () => console.log('[DEBUG-FOCUS] app did-become-active'));
-app.on('did-resign-active', () => console.log('[DEBUG-FOCUS] app did-resign-active'));
 app.on('window-all-closed', () => { /* 常駐系統匣，不因視窗全關而結束 */ });
 app.on('before-quit', () => {
   config.saveNow();
