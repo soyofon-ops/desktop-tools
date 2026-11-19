@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
 <title>編輯角色</title>
 <link rel="stylesheet" href="popup.css">
 <style>
@@ -22,6 +22,16 @@
   .mascot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--stroke); }
   .mascot:hover { border-color: var(--c); }
   .mascot[aria-checked="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); box-shadow: 0 0 0 1px var(--c); }
+  /* 預覽與上傳按鈕直排，上傳按鈕不放進吉祥物列；按鈕不比預覽寬，才不會擠到右邊的選項 */
+  .look-side { flex: none; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  /* 8 隻吉祥物加自訂圖片共 9 個 30px 按鈕：右側約 316px，間距 5px 才排得進同一列 */
+  .mascots { gap: 5px; }
+  .upload {
+    display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 5px;
+    font-size: 11px; color: var(--muted); white-space: nowrap;
+  }
+  .upload:hover { color: var(--text); background: var(--hover); }
+  .upload:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
   .row-model { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
   .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -84,10 +94,16 @@
       </div>
 
       <div class="look">
-        <span class="preview" id="preview" aria-hidden="true"></span>
+        <div class="look-side">
+          <span class="preview" id="preview" aria-hidden="true"></span>
+          <button class="upload" id="upload" type="button" aria-label="上傳圖片" title="PNG、JPG、GIF、WebP、BMP，會置中裁成圓形；GIF 保留動畫，上限 1 MB">
+            <svg class="icon" width="11" height="11" viewBox="0 0 24 24" stroke-width="2.4" aria-hidden="true"><path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></svg><span id="upload-text">上傳</span>
+          </button>
+        </div>
         <div class="pickers">
           <div class="swatches" id="colors" role="radiogroup" aria-label="顏色"></div>
-          <div class="mascots" id="mascots" role="radiogroup" aria-label="吉祥物"></div>
+          <div class="mascots" id="mascots" role="radiogroup" aria-label="圖示"></div>
+          <input type="file" id="avatar-file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" hidden>
         </div>
       </div>
 

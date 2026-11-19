@@ -31,7 +31,7 @@ function renderHeader() {
   if (!role) return;
   const color = (window.AGENT_COLORS[role.color] || window.AGENT_COLORS.blue).hex;
   els.avatar.style.setProperty('--c', color);
-  els.avatar.innerHTML = (window.MASCOTS[role.mascot] || window.MASCOTS.blob).svg(color, 24);
+  els.avatar.innerHTML = window.avatarHtml(role, color, 30, false, 24); // 頭像填滿 32px 外框內側，吉祥物 24px
   els.title.textContent = role.displayName;
   document.title = role.displayName;
   els.input.placeholder = `傳訊息給${role.displayName}…`;
@@ -82,8 +82,11 @@ els.messages.addEventListener('scroll', () => {
 function showEmpty() {
   if (els.messages.children.length) return;
   const color = role ? (window.AGENT_COLORS[role.color] || window.AGENT_COLORS.blue).hex : '#6ea8fe';
-  const m = role ? (window.MASCOTS[role.mascot] || window.MASCOTS.blob) : window.MASCOTS.blob;
-  els.messages.innerHTML = `<div class="empty">${m.svg(color, 56)}<div>${role ? esc(role.displayName) : ''}準備好了<br>${role && role.autoApprove ? '已開啟免詢問，修改檔案、執行指令不會先問你' : '可以修改檔案、執行指令，動手前會先問你'}</div></div>`;
+  // 自訂頭像沒有輪廓，加上角色顏色的圓框；吉祥物維持原樣
+  const look = role && role.avatar
+    ? `<span class="avatar avatar-lg" style="--c:${color}">${window.avatarHtml(role, color, 56)}</span>`
+    : window.avatarHtml(role, color, 56);
+  els.messages.innerHTML = `<div class="empty">${look}<div>${role ? esc(role.displayName) : ''}準備好了<br>${role && role.autoApprove ? '已開啟免詢問，修改檔案、執行指令不會先問你' : '可以修改檔案、執行指令，動手前會先問你'}</div></div>`;
 }
 
 function clearEmpty() {

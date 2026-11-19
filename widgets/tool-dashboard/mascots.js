@@ -1,5 +1,6 @@
 // 角色吉祥物（原創簡易造型，24×24），身體用角色顏色
 // 儀表盤、聊天視窗、角色編輯共用：MASCOTS[key].svg(color, size, animated)；只有儀表盤的 .agent 按鈕傳 animated
+// 顯示角色時用 avatarHtml(role, …)：角色有自訂頭像就改顯示圖片
 // 分層與 class 只供儀表盤 .agent 按鈕的動畫使用，其他頁面沒有對應樣式，外觀不受影響
 (function () {
   const D = '#12151B'; // 眼睛等深色部分（兩種主題都一樣，畫在彩色身體上）
@@ -74,6 +75,101 @@
     cyan: { name: '青', hex: '#7FDBCA' }
   };
 
+  // ---- 自訂頭像 ----
+  // 狀態同步只帶檔名（role.avatar），圖片向主程序取一次後依檔名快取；編輯中尚未儲存的圖片用 role.avatarSrc 直接帶 data URL
+  // 只接受 PNG／GIF data URL：字元集不含引號，可直接放進 src 屬性
+  const SRC_RE = /^data:image\/(png|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+  const FILE_RE = /^[a-f0-9]{16}\.(png|gif)$/;
+  const IMG_STYLE = 'display:block;border-radius:50%;object-fit:cover;pointer-events:none';
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const avatarCache = new Map(); // 檔名 → { src, still } | null（找不到）；載入中不在表內
+  const avatarLoading = new Set();
+  const stillCache = new Map();  // GIF data URL → 第一格的 PNG data URL（減少動態時用）
+
+  function agentsCall(...args) {
+    // 儀表盤用 widget.agents、彈出視窗用 agents。儀表盤有 <div id="agents">，window.agents 會指到該元素，
+    // 所以先找 widget.agents，並確認 call 是函式
+    const api = [window.widget && window.widget.agents, window.agents].find((a) => a && typeof a.call === 'function');
+    return api ? api.call(...args) : Promise.resolve(null);
+  }
+
+  /** GIF 的第一格轉成 PNG；data: 網址受 CSP 限制不能 fetch，改自行解 base64 */
+  async function firstFrame(src) {
+    if (stillCache.has(src)) return stillCache.get(src);
+    const bin = atob(src.slice(src.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/gif' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    canvas.getContext('2d').drawImage(bmp, 0, 0);
+    bmp.close();
+    const still = canvas.toDataURL('image/png');
+    stillCache.set(src, still);
+    return still;
+  }
+
+  /** 依目前的「減少動態」設定選擇動畫或第一格 */
+  function pickSrc(entry) {
+    return reducedMotion.matches && entry.still ? entry.still : entry.src;
+  }
+
+  function imgHtml(src, size, attrs = '') {
+    return `<img class="m-avatar"${attrs}${src ? ` src="${src}"` : ''} width="${size}" height="${size}" alt="" draggable="false" style="${IMG_STYLE}">`;
+  }
+
+  /** 載入完成後填入畫面上等待中的圖片；找不到圖片時改回吉祥物 */
+  async function loadAvatar(file) {
+    avatarLoading.add(file);
+    // avatarHtml 是在組 HTML 字串時呼叫的，先讓呼叫端把佔位圖片放進畫面，下面完成時才找得到它們
+    await null;
+    let entry = null;
+    try {
+      const src = await agentsCall('avatar', file);
+      if (typeof src === 'string' && SRC_RE.test(src)) {
+        entry = { src, still: null };
+        if (src.startsWith('data:image/gif')) entry.still = await firstFrame(src).catch(() => null);
+      }
+    } catch { /* 視為找不到 */ }
+    avatarCache.set(file, entry);
+    avatarLoading.delete(file);
+    for (const img of document.querySelectorAll(`img.m-avatar[data-avatar="${file}"]`)) {
+      if (entry) img.src = pickSrc(entry);
+      else img.outerHTML = (MASCOTS[img.dataset.mascot] || MASCOTS.blob).svg(img.dataset.color, Number(img.dataset.mascotSize), img.dataset.animated === '1');
+    }
+  }
+
+  /**
+   * 角色圖示：有自訂頭像時顯示圓形圖片（GIF 會播放動畫，減少動態時只顯示第一格），否則顯示吉祥物
+   * 圖片填滿 size 大小，外框由外層容器以角色顏色畫出；mascotSize 是改顯示吉祥物時的大小
+   * 圖片還沒載入時先輸出空白的 <img>，載入後自動填入，外層容器的角色顏色圓框會先顯示
+   */
+  function avatarHtml(role, color, size = 24, animated = false, mascotSize = size) {
+    const mascot = () => (MASCOTS[role && role.mascot] || MASCOTS.blob).svg(color, mascotSize, animated);
+    const direct = role && role.avatarSrc;
+    if (typeof direct === 'string' && SRC_RE.test(direct)) {
+      return imgHtml(reducedMotion.matches && stillCache.has(direct) ? stillCache.get(direct) : direct, size);
+    }
+    const file = role && role.avatar;
+    if (typeof file !== 'string' || !FILE_RE.test(file)) return mascot();
+    if (avatarCache.has(file)) {
+      const entry = avatarCache.get(file);
+      return entry ? imgHtml(pickSrc(entry), size) : mascot();
+    }
+    if (!avatarLoading.has(file)) loadAvatar(file);
+    // color 只會是 AGENT_COLORS 的色碼，mascot 只會是內建 key，都不含引號
+    const key = MASCOTS[role.mascot] ? role.mascot : 'blob';
+    return imgHtml('', size, ` data-avatar="${file}" data-mascot="${key}" data-color="${color}" data-mascot-size="${mascotSize}" data-animated="${animated ? 1 : 0}"`);
+  }
+
+  /** 編輯中的 GIF 先算好第一格，減少動態時預覽也不播放 */
+  function prepareAvatarSrc(src) {
+    return src.startsWith('data:image/gif') ? firstFrame(src).catch(() => null) : Promise.resolve(null);
+  }
+
   window.MASCOTS = MASCOTS;
   window.AGENT_COLORS = AGENT_COLORS;
+  window.avatarHtml = avatarHtml;
+  window.prepareAvatarSrc = prepareAvatarSrc;
 })();

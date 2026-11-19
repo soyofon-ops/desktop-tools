@@ -1,6 +1,6 @@
 // Claude Code 角色：儀表盤的角色面板、快速聊天與角色編輯
 // - 角色本體是 ~/.claude/agents/<name>.md 子代理（終端機的 Claude Code 也讀得到）
-// - 面板資訊（顯示名稱、吉祥物、工作資料夾、順序）存在 <設定資料夾>/agents.json
+// - 面板資訊（顯示名稱、吉祥物或自訂頭像、工作資料夾、順序）存在 <設定資料夾>/agents.json
 // - 每個角色各自一個對話 session，對話紀錄存在 <設定資料夾>/agent-chats/<name>.json
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +14,7 @@ const {
 const { HANDOFF_TOOL, routingPrompt, handoffMessage, createHandoffs, handoffServer } = require('./handoff');
 const { isDue, normalizeSchedule, startScheduler, localDate } = require('./schedule');
 const { createChatImages, imagesOf, MAX_IMAGES } = require('./chat-images');
+const { createAvatarStore } = require('./avatar');
 
 const AUTH_MODES = ['apiKey', 'claudeCode'];
 // 隨 App 附帶的預設子代理（例如角色設計顧問 staff-bot）
@@ -78,6 +79,7 @@ function setupAgents(deps) {
   const chatsDir = path.join(userDataDir, 'agent-chats');
   // 保留原名的角色可能含 / 等不能當檔名的字元，編碼後才不會寫到其他路徑
   const images = createChatImages({ dir: path.join(chatsDir, 'images'), nativeImage });
+  const avatars = createAvatarStore({ dir: path.join(userDataDir, 'agent-avatars'), nativeImage });
   const chatFile = (name) => path.join(chatsDir, `${String(name).replace(/[\\/:*?"<>|%]/g, (c) => `%${c.charCodeAt(0).toString(16)}`)}.json`);
   const keys = createKeyStore({ dir: userDataDir, safeStorage, fetch });
   let localAuthFailed = false; // 聊天時遇到本機登入失效（只存在記憶體）
@@ -107,13 +109,30 @@ function setupAgents(deps) {
     }
   }
 
+  // 舊版把頭像 data URL 直接存在 agents.json：轉成檔案，之後同步狀態與存檔都只帶檔名
+  // 轉換失敗的保持原樣（畫面顯示吉祥物），下次啟動再試
+  let migrated = false;
+  for (const r of panel.roles) {
+    const name = avatars.migrate(r.avatar);
+    if (name) { r.avatar = name; migrated = true; }
+  }
+  if (migrated) savePanel();
+
+  /** 刪除不再被任何角色使用的頭像檔案 */
+  function removeUnusedAvatars(names) {
+    avatars.removeUnused(names, new Set(panel.roles.map((r) => r.avatar).filter(Boolean)));
+  }
+
+
   let defs = new Map(); // name → 子代理定義
   function reloadDefs() {
     defs = new Map(files.readAll(agentsDir).map((d) => [d.name, d]));
     // 檔案被刪掉的角色從面板移除
-    const before = panel.roles.length;
+    const gone = panel.roles.filter((r) => !defs.has(r.name));
+    if (!gone.length) return;
     panel.roles = panel.roles.filter((r) => defs.has(r.name));
-    if (panel.roles.length !== before) savePanel();
+    removeUnusedAvatars(gone.map((r) => r.avatar)); // 一併清掉它們的頭像
+    savePanel();
   }
 
   /**
@@ -388,6 +407,8 @@ function setupAgents(deps) {
       name: r.name,
       displayName: r.displayName || r.name,
       mascot: MASCOTS.includes(r.mascot) ? r.mascot : hashPick(r.name, MASCOTS),
+      // 自訂頭像只傳檔名，圖片由各視窗用 api.avatar() 取一次後快取；沒有時為 null
+      avatar: avatars.stored(r.avatar),
       color: d.color || hashPick(r.name, files.COLORS),
       cwd: r.cwd || '',
       imported: !!r.imported,
@@ -485,6 +506,9 @@ function setupAgents(deps) {
   const api = {
     state: () => stateView(),
 
+    /** 角色頭像圖片（data URL）；狀態同步只帶檔名，視窗第一次顯示時才取，找不到時回傳 null */
+    avatar: (file) => avatars.dataUrl(file),
+
     getRole(name) {
       const r = panel.roles.find((x) => x.name === name);
       const d = defs.get(name);
@@ -513,6 +537,12 @@ function setupAgents(deps) {
       const schedule = p.schedule === undefined
         ? prevRole?.schedule || null
         : normalizeSchedule(p.schedule, prevRole?.schedule || null, new Date());
+      // 頭像：沒傳入時沿用原本的，null 或空字串代表改回吉祥物；同樣先驗證再寫檔
+      // 傳入檔名代表沿用既有的頭像，傳入 data URL 代表新上傳
+      const avatar = p.avatar === undefined ? avatars.stored(prevRole?.avatar)
+        : !p.avatar ? null
+          : avatars.exists(p.avatar) ? p.avatar
+            : avatars.save(p.avatar);
       const tools = groupsToTools(Array.isArray(p.toolGroups) ? p.toolGroups : [], Array.isArray(p.extraTools) ? p.extraTools : []);
       const def = {
         name: imported ? oldName : String(p.name || '').trim(),
@@ -528,6 +558,7 @@ function setupAgents(deps) {
         name: def.name,
         displayName: String(p.displayName || '').trim() || def.name,
         mascot: MASCOTS.includes(p.mascot) ? p.mascot : hashPick(def.name, MASCOTS),
+        ...(avatar ? { avatar } : {}),
         cwd: String(p.cwd || '').trim(),
         ...(imported ? { imported: true } : {}),
         // 沒傳入時沿用原本的設定
@@ -550,6 +581,7 @@ function setupAgents(deps) {
         }
         closeSession(oldName); // 下次傳訊息用新設定
       }
+      if (prevRole?.avatar && prevRole.avatar !== avatar) removeUnusedAvatars([prevRole.avatar]); // 換掉或移除的舊頭像
       savePanel();
       reloadDefs();
       broadcastState();
@@ -572,7 +604,9 @@ function setupAgents(deps) {
       // 從現有子代理加入的角色與內建預設子代理只從面板移除，檔案留在子代理資料夾
       const imported = !!panel.roles.find((r) => r.name === name)?.imported;
       if (!imported && !defaultNames.has(name)) await files.remove(agentsDir, name, { trash });
+      const oldAvatar = panel.roles.find((r) => r.name === name)?.avatar;
       panel.roles = panel.roles.filter((r) => r.name !== name);
+      if (oldAvatar) removeUnusedAvatars([oldAvatar]);
       delete panel.sessions[name];
       const oldImages = imagesOf(historyOf(name).items);
       histories.delete(name);

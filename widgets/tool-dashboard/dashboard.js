@@ -777,7 +777,6 @@ function renderAgents() {
   }
   for (const r of agentState.roles) {
     const color = (window.AGENT_COLORS[r.color] || window.AGENT_COLORS.blue).hex;
-    const mascot = window.MASCOTS[r.mascot] || window.MASCOTS.blob;
     const btn = document.createElement('button');
     btn.className = `agent${r.state === 'running' ? ' running' : ''}${r.state === 'waiting' ? ' waiting' : ''}${r.open ? ' open' : ''}`;
     btn.dataset.name = r.name;
@@ -802,7 +801,8 @@ function renderAgents() {
     const label = stateLabel ? `${r.displayName} · ${stateLabel}` : r.displayName;
     btn.dataset.tip = label;
     btn.setAttribute('aria-label', `${label}（Alt + ←→ 調整順序）`);
-    btn.innerHTML = `${mascot.svg(color, 32, true)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
+    // 自訂頭像填滿按鈕內側（44px 扣掉 1px 外框），吉祥物維持 32px
+    btn.innerHTML = `${window.avatarHtml(r, color, 42, true, 32)}<span class="badge" aria-hidden="true"></span><span class="open-dot" aria-hidden="true"></span>`;
     btn.addEventListener('click', () => {
       if (agentSuppressClick) return;
       hideTip();

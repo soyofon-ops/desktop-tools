@@ -8,7 +8,15 @@ let editing = null;     // 原本的代號（新增時為 null）
 let importedFile = '';  // 從現有子代理加入的角色：實際檔案路徑（保留原檔名與 name）
 let color = 'blue';
 let mascot = 'blob';
+let avatarFile = '';    // 已儲存的自訂頭像檔名
+let avatarSrc = '';     // 這次新上傳、尚未儲存的頭像（PNG／GIF data URL）
+let useAvatar = false;  // 選中自訂頭像；改選吉祥物並儲存時，頭像會被移除
 let extraTools = [];
+
+const CUSTOM = 'custom';              // 吉祥物列中「自訂圖片」選項的 key
+const AVATAR_SIZE = 96;               // 與主程序 src/agents/avatar.js 的存檔尺寸一致
+const AVATAR_MAX_FILE = 10 * 1024 * 1024;
+const GIF_MAX_FILE = 1024 * 1024;     // GIF 動畫不縮放，上限與主程序一致
 let agentsDir = '';
 
 const f = {
@@ -28,15 +36,89 @@ function toKebabCase(value) {
   return words.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 64).replace(/-+$/, '');
 }
 
+/** 圖示選項：吉祥物，有上傳過圖片時再加上自訂圖片 */
+function lookKeys() {
+  return hasAvatar() ? [...MASCOT_KEYS, CUSTOM] : MASCOT_KEYS;
+}
+
+function hasAvatar() {
+  return !!(avatarSrc || avatarFile);
+}
+
+/** 給 avatarHtml 用的角色資料：新上傳的優先 */
+function avatarRole() {
+  return { avatar: avatarFile, avatarSrc, mascot };
+}
+
+function selectLook(k) {
+  useAvatar = k === CUSTOM;
+  if (!useAvatar) mascot = k;
+}
+
 function renderLook() {
   const c = hex();
   $('preview').style.setProperty('--c', c);
-  $('preview').innerHTML = window.MASCOTS[mascot].svg(c, 40);
+  // 自訂頭像填滿 56px 預覽外框內側，吉祥物維持 40px
+  $('preview').innerHTML = useAvatar ? window.avatarHtml(avatarRole(), c, 54, false, 40) : window.MASCOTS[mascot].svg(c, 40);
   $('colors').innerHTML = COLOR_KEYS.map((k) => {
     const h = window.AGENT_COLORS[k].hex;
     return `<button class="swatch" role="radio" aria-checked="${k === color}" aria-label="${window.AGENT_COLORS[k].name}" title="${window.AGENT_COLORS[k].name}" data-color="${k}" style="background:${h};--sw:${h}"></button>`;
   }).join('');
-  $('mascots').innerHTML = MASCOT_KEYS.map((k) => `<button class="mascot" role="radio" aria-checked="${k === mascot}" aria-label="${window.MASCOTS[k].name}" title="${window.MASCOTS[k].name}" data-mascot="${k}" style="--c:${c}">${window.MASCOTS[k].svg(c, 20)}</button>`).join('');
+  const custom = hasAvatar()
+    ? `<button class="mascot" role="radio" aria-checked="${useAvatar}" aria-label="自訂圖片" title="自訂圖片" data-mascot="${CUSTOM}" style="--c:${c}">${window.avatarHtml(avatarRole(), c, 28, false, 20)}</button>`
+    : '';
+  // 按鈕寬度受限於預覽，畫面上用短字，完整說明放在 aria-label
+  $('upload-text').textContent = hasAvatar() ? '更換' : '上傳';
+  $('upload').setAttribute('aria-label', hasAvatar() ? '更換圖片' : '上傳圖片');
+  $('mascots').innerHTML = MASCOT_KEYS.map((k) => `<button class="mascot" role="radio" aria-checked="${!useAvatar && k === mascot}" aria-label="${window.MASCOTS[k].name}" title="${window.MASCOTS[k].name}" data-mascot="${k}" style="--c:${c}">${window.MASCOTS[k].svg(c, 20)}</button>`).join('')
+    + custom;
+}
+
+/** 讀成 data URL（GIF 要保留動畫，不經過 canvas） */
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('無法讀取這張圖片'));
+    r.readAsDataURL(file);
+  });
+}
+
+/**
+ * 讀取選取的圖片
+ * - GIF：保留原檔與動畫，顯示時置中裁成圓形
+ * - 其他：置中裁成正方形並縮小成 PNG data URL
+ */
+async function readAvatarFile(file) {
+  if (!/^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type)) throw new Error('只支援 PNG、JPG、GIF、WebP、BMP 圖片');
+  if (file.type === 'image/gif') {
+    if (file.size > GIF_MAX_FILE) throw new Error('GIF 動畫太大（上限 1 MB）');
+    try {
+      (await createImageBitmap(file)).close(); // 確認解得開
+    } catch {
+      throw new Error('無法讀取這張圖片');
+    }
+    const src = await readAsDataUrl(file);
+    await window.prepareAvatarSrc(src); // 先算好第一格，減少動態時預覽不播放
+    return src;
+  }
+  if (file.size > AVATAR_MAX_FILE) throw new Error('圖片太大（上限 10 MB）');
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error('無法讀取這張圖片');
+  }
+  const side = Math.min(bmp.width, bmp.height);
+  const out = Math.min(AVATAR_SIZE, side);
+  const canvas = document.createElement('canvas');
+  canvas.width = out;
+  canvas.height = out;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, out, out);
+  bmp.close();
+  return canvas.toDataURL('image/png');
 }
 
 $('colors').addEventListener('click', (e) => {
@@ -45,15 +127,35 @@ $('colors').addEventListener('click', (e) => {
 });
 $('mascots').addEventListener('click', (e) => {
   const b = e.target.closest('[data-mascot]');
-  if (b) { mascot = b.dataset.mascot; renderLook(); }
+  if (b) { selectLook(b.dataset.mascot); renderLook(); }
 });
-// 方向鍵在顏色、吉祥物之間移動
-for (const [id, keys, get, set] of [['colors', COLOR_KEYS, () => color, (v) => { color = v; }], ['mascots', MASCOT_KEYS, () => mascot, (v) => { mascot = v; }]]) {
+$('upload').addEventListener('click', () => $('avatar-file').click());
+$('avatar-file').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ''; // 同一張圖片再選一次也要觸發
+  if (!file) return;
+  try {
+    avatarSrc = await readAvatarFile(file);
+    useAvatar = true;
+    f.err.textContent = '';
+    renderLook();
+    $('mascots').querySelector(`[data-mascot="${CUSTOM}"]`).focus();
+  } catch (err) {
+    f.err.textContent = err.message;
+    f.err.scrollIntoView({ block: 'nearest' });
+  }
+});
+// 方向鍵在顏色、圖示之間移動
+for (const [id, keys, get, set] of [
+  ['colors', () => COLOR_KEYS, () => color, (v) => { color = v; }],
+  ['mascots', lookKeys, () => (useAvatar ? CUSTOM : mascot), selectLook]
+]) {
   $(id).addEventListener('keydown', (e) => {
     const d = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
     if (!d) return;
     e.preventDefault();
-    set(keys[(keys.indexOf(get()) + d + keys.length) % keys.length]);
+    const list = keys();
+    set(list[(list.indexOf(get()) + d + list.length) % list.length]);
     renderLook();
     $(id).querySelector('[aria-checked="true"]').focus();
   });
@@ -109,6 +211,9 @@ function fill(role) {
   $('remove').hidden = !role;
   color = role ? role.color : COLOR_KEYS[Math.floor(Math.random() * COLOR_KEYS.length)];
   mascot = role ? role.mascot : MASCOT_KEYS[Math.floor(Math.random() * MASCOT_KEYS.length)];
+  avatarFile = (role && role.avatar) || '';
+  avatarSrc = '';
+  useAvatar = !!avatarFile;
   f.displayName.value = role ? role.displayName : '';
   // 從現有子代理加入的角色保留原名；其他已合法的代號維持原樣，舊資料不合法時才轉換
   f.name.value = !role ? '' : imported || NAME_RE.test(role.name) ? role.name : toKebabCase(role.name);
@@ -158,6 +263,8 @@ async function save() {
       name: f.name.value.trim(),
       displayName: f.displayName.value.trim(),
       mascot, color,
+      // 新上傳傳 data URL、沿用傳檔名、null 改回吉祥物並移除自訂頭像
+      avatar: useAvatar ? avatarSrc || avatarFile : null,
       description: f.description.value.trim(),
       prompt: f.prompt.value.trim(),
       model: f.model.value,
