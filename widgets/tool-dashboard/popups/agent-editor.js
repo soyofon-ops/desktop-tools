@@ -12,6 +12,7 @@ let avatarFile = '';    // 已儲存的自訂頭像檔名
 let avatarSrc = '';     // 這次新上傳、尚未儲存的頭像（PNG／GIF data URL）
 let useAvatar = false;  // 選中自訂頭像；改選吉祥物並儲存時，頭像會被移除
 let extraTools = [];
+let snapshot = '';      // 載入時的表單內容（payload 序列化），用來判斷有沒有未儲存的修改
 
 const CUSTOM = 'custom';              // 吉祥物列中「自訂圖片」選項的 key
 const AVATAR_SIZE = 96;               // 與主程序 src/agents/avatar.js 的存檔尺寸一致
@@ -237,8 +238,16 @@ function fill(role) {
   f.autoApprove.checked = !!(role && role.autoApprove);
   renderAutoApprove();
   f.err.textContent = '';
+  // 複製模式的畫面還原；複製按鈕只在編輯模式顯示
+  $('copy').hidden = !role;
+  $('copy-from').hidden = true;
+  $('copy-notice').hidden = true;
+  $('confirm-copy').hidden = true;
+  $('confirm-del').hidden = true;
   renderLook();
   updateFile();
+  syncButtons();
+  snapshot = JSON.stringify(payload());
 }
 
 function validate() {
@@ -252,54 +261,177 @@ function validate() {
   return null;
 }
 
-async function save() {
+/** 儲存時送給主程序的資料 */
+function payload() {
+  return {
+    oldName: editing,
+    name: f.name.value.trim(),
+    displayName: f.displayName.value.trim(),
+    mascot, color,
+    // 新上傳傳 data URL、沿用傳檔名、null 改回吉祥物並移除自訂頭像
+    avatar: useAvatar ? avatarSrc || avatarFile : null,
+    description: f.description.value.trim(),
+    prompt: f.prompt.value.trim(),
+    model: f.model.value,
+    cwd: f.cwd.value.trim(),
+    toolGroups: [...document.querySelectorAll('.tchip[aria-pressed="true"]')].map((c) => c.dataset.g),
+    extraTools,
+    autoApprove: f.autoApprove.checked,
+    schedule: { enabled: f.scheduleEnabled.checked, time: f.scheduleTime.value, message: f.scheduleMessage.value.trim() }
+  };
+}
+
+/**
+ * 儲存角色
+ * @param {{ close?: boolean }} [opts] close 為 false 時成功後不關窗（儲存後複製）
+ * @returns {Promise<boolean>} 是否儲存成功
+ */
+async function save({ close = true } = {}) {
   const bad = validate();
-  if (bad) { f.err.textContent = bad[1]; bad[0].focus(); return; }
+  if (bad) { f.err.textContent = bad[1]; bad[0].focus(); return false; }
   $('save').disabled = true;
+  syncButtons();
   f.err.textContent = '';
   try {
-    await window.agents.call('saveRole', {
-      oldName: editing,
-      name: f.name.value.trim(),
-      displayName: f.displayName.value.trim(),
-      mascot, color,
-      // 新上傳傳 data URL、沿用傳檔名、null 改回吉祥物並移除自訂頭像
-      avatar: useAvatar ? avatarSrc || avatarFile : null,
-      description: f.description.value.trim(),
-      prompt: f.prompt.value.trim(),
-      model: f.model.value,
-      cwd: f.cwd.value.trim(),
-      toolGroups: [...document.querySelectorAll('.tchip[aria-pressed="true"]')].map((c) => c.dataset.g),
-      extraTools,
-      autoApprove: f.autoApprove.checked,
-      schedule: { enabled: f.scheduleEnabled.checked, time: f.scheduleTime.value, message: f.scheduleMessage.value.trim() }
-    });
-    window.popup.close();
+    await window.agents.call('saveRole', payload());
+    if (close) window.popup.close();
+    return true;
   } catch (err) {
     f.err.textContent = err.message;
     f.err.scrollIntoView({ block: 'nearest' }); // 錯誤訊息在表單最下方，捲到看得到
+    return false;
   } finally {
     $('save').disabled = false;
+    syncButtons();
   }
 }
 
-$('save').addEventListener('click', save);
+/** 儲存中或確認列開啟時停用複製；未儲存修改確認列開啟時停用移除，避免兩個確認列同時出現 */
+function syncButtons() {
+  const confirming = !$('confirm-del').hidden || !$('confirm-copy').hidden;
+  $('copy').disabled = $('save').disabled || confirming;
+  $('remove').disabled = !$('confirm-copy').hidden;
+}
+
+function setConfirm(id, show) {
+  $(id).hidden = !show;
+  syncButtons();
+}
+
+/** 複製用的顯示名稱：「原名稱 副本」，重複時改為「副本 2」「副本 3」…，超過欄位上限時截短原名稱 */
+function copyDisplayName(src, taken) {
+  const max = Number(f.displayName.maxLength) > 0 ? f.displayName.maxLength : 20;
+  for (let i = 1; ; i++) {
+    const suffix = i === 1 ? ' 副本' : ` 副本 ${i}`;
+    const head = [...src]; // 以字元為單位截短，避免切開表情符號
+    while (head.length && head.join('').length + suffix.length > max) head.pop();
+    const name = head.join('').trimEnd() + suffix;
+    if (!taken.has(name)) return name;
+  }
+}
+
+/** 複製用的代號：「原代號-copy」，重複時改為 -copy-2、-copy-3…；轉不出合法代號時回傳空字串，由使用者自行填寫 */
+function copyCode(src, taken) {
+  const base = NAME_RE.test(src) ? src : toKebabCase(src);
+  if (!base) return '';
+  for (let i = 1; ; i++) {
+    const suffix = i === 1 ? '-copy' : `-copy-${i}`;
+    const code = base.slice(0, 64 - suffix.length).replace(/-+$/, '') + suffix;
+    if (!taken.has(code)) return code;
+  }
+}
+
+/**
+ * 以目前畫面內容切換成「新增角色」（原地切換，不開新視窗）
+ * @param {boolean} carried 是否帶入了未儲存到原角色的修改
+ */
+async function enterCopyMode(carried) {
+  $('copy').disabled = true; // 取狀態期間避免重複觸發
+  let state;
+  try {
+    state = await window.agents.call('state'); // 「儲存後複製」可能剛改過代號或名稱，重新取得
+  } catch (err) {
+    f.err.textContent = err.message;
+    syncButtons();
+    return;
+  }
+  const srcDisplay = f.displayName.value.trim() || f.name.value.trim();
+  const srcName = f.name.value.trim();
+  const turnedOff = f.scheduleEnabled.checked || f.autoApprove.checked;
+  const names = new Set([...state.roles.map((r) => r.name), ...(state.existing || [])]);
+  const displays = new Set(state.roles.map((r) => r.displayName));
+
+  editing = null;
+  importedFile = '';
+  f.displayName.value = copyDisplayName(srcDisplay, displays);
+  f.name.value = copyCode(srcName, names);
+  // 匯入角色的鎖定是為了保留原檔；複製出來的是新檔，代號必須可改
+  f.name.readOnly = false;
+  f.name.title = '';
+  // 權限不靜默複製；排程關閉避免同時觸發兩次，但保留時間與訊息
+  f.autoApprove.checked = false;
+  renderAutoApprove();
+  f.scheduleEnabled.checked = false;
+  renderSchedule();
+
+  $('heading').textContent = '新增角色';
+  document.title = $('heading').textContent;
+  $('copy-from').textContent = `複製自 ${srcDisplay}`;
+  $('copy-from').title = `複製自 ${srcDisplay}（${srcName}）`;
+  $('copy-from').hidden = false;
+  $('copy').hidden = true;
+  $('remove').hidden = true;
+  $('confirm-del').hidden = true;
+  $('confirm-copy').hidden = true;
+
+  // 先顯示再填字，讓螢幕閱讀器唸出提示
+  $('copy-notice').hidden = false;
+  const text = $('copy-notice-text');
+  text.textContent = '';
+  if (carried) text.append('已帶入你剛才未儲存的修改，原角色沒有更新。');
+  const b = document.createElement('b');
+  b.textContent = '尚未儲存的新角色。';
+  text.append(b, '儲存後會建立新的子代理檔案，原角色不受影響。'
+    + (turnedOff ? '每日排程與「不要再詢問」已關閉，需要時請重新開啟。' : ''));
+
+  f.err.textContent = '';
+  updateFile();
+  syncButtons();
+  $('form').scrollTop = 0;
+  f.displayName.focus();
+  f.displayName.select();
+}
+
+$('save').addEventListener('click', () => save());
 $('cancel').addEventListener('click', () => window.popup.close());
 $('close').addEventListener('click', () => window.popup.close());
-$('remove').addEventListener('click', () => { $('confirm-del').hidden = false; $('del-cancel').focus(); });
-$('del-cancel').addEventListener('click', () => { $('confirm-del').hidden = true; });
+$('remove').addEventListener('click', () => { setConfirm('confirm-del', true); $('del-cancel').focus(); });
+$('del-cancel').addEventListener('click', () => setConfirm('confirm-del', false));
 $('del-ok').addEventListener('click', async () => {
   try {
     await window.agents.call('removeRole', editing);
     window.popup.close();
   } catch (err) {
-    $('confirm-del').hidden = true;
+    setConfirm('confirm-del', false);
     f.err.textContent = err.message;
   }
 });
+$('copy').addEventListener('click', () => {
+  if (JSON.stringify(payload()) === snapshot) { enterCopyMode(false); return; }
+  setConfirm('confirm-copy', true);
+  $('copy-save').focus();
+});
+$('copy-cancel').addEventListener('click', () => { setConfirm('confirm-copy', false); $('copy').focus(); });
+$('copy-discard').addEventListener('click', () => { setConfirm('confirm-copy', false); enterCopyMode(true); });
+$('copy-save').addEventListener('click', async () => {
+  setConfirm('confirm-copy', false);
+  // 驗證或儲存失敗時留在編輯模式，錯誤顯示在 #err
+  if (await save({ close: false })) enterCopyMode(false);
+});
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if (!$('confirm-del').hidden) $('confirm-del').hidden = true;
+    if (!$('confirm-copy').hidden) { setConfirm('confirm-copy', false); $('copy').focus(); }
+    else if (!$('confirm-del').hidden) setConfirm('confirm-del', false);
     else window.popup.close();
   }
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); // Ctrl + Enter 儲存
