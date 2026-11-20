@@ -19,6 +19,7 @@ function routingPrompt(self, others) {
     '收到工作時先對照上方的角色設定與上述清單，判斷是否屬於你的職責。這段規則優先於角色設定中對範圍外工作的處理方式：',
     `- 整件工作明顯屬於其他角色：呼叫 ${TOOL_NAME} 轉派。對方看不到這段對話，task 必須寫清楚背景、需求、相關路徑與使用者的原話。轉派後簡短告知使用者交給了誰，然後結束，不要自己接著處理。`,
     '- 只有一部分屬於其他角色：只轉派那一部分，其餘自己完成。',
+    `- 其他角色轉派來的工作，若要求完成後交回：處理完就呼叫 ${TOOL_NAME} 轉回給派工的角色，task 附上產出的檔案路徑與重點摘要。`,
     '- 沒有合適的角色，或使用者明確指定由你處理：不要轉派，依你的角色設定處理。'
   ].join('\n');
 }
@@ -68,8 +69,13 @@ function createHandoffs(o) {
     }
     if (to.name === from) return { ok: false, text: '不能轉派給自己，請直接處理或告知使用者。' };
     const chain = chains.get(from) || [from];
-    if (chain.includes(to.name)) {
-      return { ok: false, text: `這件工作已經過「${to.displayName}」，不能再轉回去。請自行處理，或告知使用者沒有合適的角色。` };
+    // 可以交回給派工給自己的上一手；自己已經被交回過一次時不行，避免兩個角色來回轉派
+    const sender = chain.length > 1 ? chain[chain.length - 2] : null;
+    const isReturn = to.name === sender && chain.filter((n) => n === from).length === 1;
+    if (chain.includes(to.name) && !isReturn) {
+      const back = sender && chain.filter((n) => n === from).length === 1 ? findRole(sender) : null;
+      const hint = back ? `完成後可以交回給派工給你的「${back.displayName}」（${back.name}）。` : '';
+      return { ok: false, text: `這件工作已經過「${to.displayName}」，不能再轉回去。${hint}請自行處理，或告知使用者沒有合適的角色。` };
     }
     if (chain.length > MAX_HOPS) {
       return { ok: false, text: `這件工作已轉派 ${MAX_HOPS} 次，不能再轉派。請自行處理，或告知使用者由他決定。` };
