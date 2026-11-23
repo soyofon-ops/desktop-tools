@@ -52,14 +52,16 @@
     const lines = String(md || '').replace(/\r\n/g, '\n').split('\n');
     const out = [];
     let para = [];
-    let list = null; // { type: 'ul' | 'ol', items: [] }
+    let list = null; // { type: 'ul' | 'ol', start: number, items: [] }
 
     const flushPara = () => {
       if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`);
       para = [];
     };
     const flushList = () => {
-      if (list) out.push(`<${list.type}>${list.items.map((i) => `<li>${inline(i)}</li>`).join('')}</${list.type}>`);
+      // 有序清單被其他區塊打斷後，依原文編號接續（例如 2. 開頭時輸出 start="2"）
+      const startAttr = list && list.type === 'ol' && list.start !== 1 ? ` start="${list.start}"` : '';
+      if (list) out.push(`<${list.type}${startAttr}>${list.items.map((i) => `<li>${inline(i)}</li>`).join('')}</${list.type}>`);
       list = null;
     };
 
@@ -94,12 +96,12 @@
       const h = line.match(/^(#{1,6})\s+(.*)$/);
       if (h) { flushPara(); flushList(); out.push(`<h${Math.min(6, h[1].length + 2)}>${inline(h[2])}</h${Math.min(6, h[1].length + 2)}>`); continue; }
       const ul = line.match(/^\s*[-*+]\s+(.*)$/);
-      const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      const ol = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
       if (ul || ol) {
         flushPara();
         const type = ul ? 'ul' : 'ol';
-        if (!list || list.type !== type) { flushList(); list = { type, items: [] }; }
-        list.items.push((ul || ol)[1]);
+        if (!list || list.type !== type) { flushList(); list = { type, start: ol ? Number(ol[1]) : 1, items: [] }; }
+        list.items.push(ul ? ul[1] : ol[2]);
         continue;
       }
       if (/^\s*>\s?/.test(line)) { flushPara(); flushList(); out.push(`<blockquote>${inline(line.replace(/^\s*>\s?/, ''))}</blockquote>`); continue; }
