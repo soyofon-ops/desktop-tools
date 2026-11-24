@@ -7,6 +7,20 @@ const IDLE_CLOSE_MS = 10 * 60 * 1000; // 閒置 10 分鐘關閉程序，下次�
 const ASK_TOOL = 'AskUserQuestion';
 const MAX_ANSWER_LENGTH = 2000;
 
+// 模型偶爾把工具呼叫格式或系統標籤當成文字輸出，整行只有這些標籤時不顯示
+const LEAKED_TAG_LINE = /^\s*(<\/?(invoke|parameter|function_calls)\b[^>]*>|<reasoning_effort>[^<]*<\/reasoning_effort>)\s*$/;
+const FENCE_LINE = /^\s*`{3,}/;
+
+/** 移除程式碼區塊外、整行只有內部標籤的行，並收合因此多出的空行 */
+function stripLeakedTags(text) {
+  let inFence = false;
+  const kept = String(text || '').split('\n').filter((line) => {
+    if (FENCE_LINE.test(line)) inFence = !inFence;
+    return inFence || !LEAKED_TAG_LINE.test(line);
+  });
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /** 只保留聊天視窗需要的題目欄位 */
 function questionCard(input = {}) {
   const list = Array.isArray(input.questions) ? input.questions : [];
@@ -205,8 +219,10 @@ class AgentSession {
       case 'assistant': {
         if (m.parent_tool_use_id) break;
         const blocks = (m.message && m.message.content) || [];
-        const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
-        if (text) this.emit({ type: 'assistant', text });
+        const raw = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
+        // 串流時可能已顯示殘留標籤，最終文字一律送出（即使清除後為空）以覆蓋串流內容
+        const text = stripLeakedTags(raw);
+        if (text || (raw && this.streamText)) this.emit({ type: 'assistant', text });
         this.streamText = '';
         for (const b of blocks) {
           if (b.type === 'tool_use') this.emit({ type: 'tool', id: b.id, name: b.name, ...toolSummary(b.name, b.input, this.cwd) });
