@@ -219,13 +219,25 @@ function setupAgents(deps) {
   function saveHistory(name) {
     const h = histories.get(name);
     if (!h) return;
+    const persistable = h.items.filter((i) => !isPendingCard(i) && !i.streaming);
+    const items = persistable.slice(-MAX_HISTORY);
+    // 超過上限時記憶體也一起截掉，並刪除只有被截掉的訊息用到的圖片；等待中的卡片與串流中的訊息保留
+    const dropped = persistable.slice(0, persistable.length - items.length);
+    if (dropped.length) {
+      const gone = new Set(dropped);
+      h.items = h.items.filter((i) => !gone.has(i));
+    }
     try {
       fs.mkdirSync(chatsDir, { recursive: true });
-      const items = h.items.filter((i) => !isPendingCard(i) && !i.streaming).slice(-MAX_HISTORY);
-      fs.writeFileSync(chatFile(name), JSON.stringify({ items, cost: h.cost, model: h.model }), 'utf8');
+      // 先寫暫存檔再改名，寫到一半中斷時不會留下損毀的紀錄
+      const tmp = `${chatFile(name)}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ items, cost: h.cost, model: h.model }), 'utf8');
+      fs.renameSync(tmp, chatFile(name));
     } catch (err) {
       console.error('儲存對話紀錄失敗', err);
     }
+    // 不排除自己：保留下來的訊息用到的圖片不能刪；角色已不在面板上時無法確認使用中的圖片，不刪
+    if (dropped.length && panel.roles.some((r) => r.name === name)) removeChatImages(imagesOf(dropped));
   }
 
   /** 紀錄只存圖片檔名，交給聊天視窗時換成絕對路徑 */
@@ -234,7 +246,10 @@ function setupAgents(deps) {
     return { ...item, images: item.images.map((n) => images.fullPath(n)).filter(Boolean) };
   }
 
-  /** 對話清除後刪掉它的圖片；同一張圖也出現在其他角色的對話時保留 */
+  /**
+   * 刪掉不再被任何對話使用的圖片。
+   * exceptName：該角色的對話已清除時傳入，不讀它的紀錄；不傳時所有角色（含自己保留的訊息）都算使用中
+   */
   function removeChatImages(names, exceptName) {
     if (!names.length) return;
     const inUse = new Set();
