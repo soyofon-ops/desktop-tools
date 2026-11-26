@@ -145,7 +145,7 @@ function validate(def, { keepName = false } = {}) {
 }
 
 function readAll(dir) {
-  let files = [];
+  let files;
   try { files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.md')); } catch { return []; }
   const out = [];
   for (const f of files) {

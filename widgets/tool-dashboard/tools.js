@@ -223,7 +223,7 @@ function parseRegexInput(text) {
     flags = s.slice(last + 1);
   }
   try {
-    new RegExp(source, flags); // eslint-disable-line no-new
+    new RegExp(source, flags);
   } catch (err) {
     return { error: err.message };
   }

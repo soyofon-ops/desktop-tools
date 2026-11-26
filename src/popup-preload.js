@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('agents', {
     try {
       return await ipcRenderer.invoke('agents:call', method, ...args);
     } catch (err) {
-      throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+      throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { cause: err });
     }
   },
   onChanged: (fn) => ipcRenderer.on('agents:changed', (_e, state) => fn(state)),

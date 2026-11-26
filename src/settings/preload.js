@@ -5,7 +5,7 @@ async function invoke(channel, ...args) {
   try {
     return await ipcRenderer.invoke(channel, ...args);
   } catch (err) {
-    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { cause: err });
   }
 }
 

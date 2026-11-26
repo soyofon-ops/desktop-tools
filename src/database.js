@@ -380,7 +380,7 @@ function parseImport(payload) {
     try {
       fields = normalizeFields(Array.isArray(c.fields) ? c.fields : []);
     } catch (err) {
-      throw new Error(`分類「${id}」：${err.message}`);
+      throw new Error(`分類「${id}」：${err.message}`, { cause: err });
     }
     const rawItems = Array.isArray(c.items) ? c.items : [];
     const items = rawItems.map((it) => {

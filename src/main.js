@@ -368,7 +368,7 @@ function isChatPage(id, file) {
 
 /** chat-image:// 的處理：只回傳圖片副檔名的本機檔案 */
 async function serveChatImage(request) {
-  let file = '';
+  let file;
   try {
     const p = new URL(request.url).searchParams.get('p') || '';
     file = /^file:/i.test(p) ? fileURLToPath(p) : p;

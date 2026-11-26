@@ -86,7 +86,6 @@ const sdRoundRect = (x0, y0, x1, y1, r) => (x, y) => {
 
 // 菱形（風箏形）：與主圖示相同的剪影
 const kitePts = g => [[g.cx, g.top], [g.cx + g.hw, g.sh], [g.cx, g.bottom], [g.cx - g.hw, g.sh]];
-const facetPts = g => [[g.cx, g.top], [g.cx + g.hw, g.sh], [g.cx, g.sh]];
 
 // ---------- 光柵化 ----------
 // layers: [{ inside(x, y) => bool, color, alpha }]，由下往上疊

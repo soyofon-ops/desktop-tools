@@ -100,7 +100,7 @@ async function agentsCall(method, ...args) {
   try {
     return await ipcRenderer.invoke('agents:call', method, ...args);
   } catch (err) {
-    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { cause: err });
   }
 }
 
@@ -109,7 +109,7 @@ async function dbCall(method, ...args) {
   try {
     return await ipcRenderer.invoke('db:call', method, ...args);
   } catch (err) {
-    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''));
+    throw new Error(String(err.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { cause: err });
   }
 }
 
@@ -123,7 +123,7 @@ window.addEventListener('pointerdown', (e) => {
   if (e.target.closest && e.target.closest('[data-no-drag], input, textarea, select, button')) return;
   drag = { pointerId: e.pointerId, sx: e.screenX, sy: e.screenY, moved: false };
   ipcRenderer.send('widget:press'); // 主程序記下此刻的游標與視窗位置
-  try { e.target.setPointerCapture(e.pointerId); } catch {}
+  try { e.target.setPointerCapture(e.pointerId); } catch { /* 元素無法捕捉指標時仍可拖曳，略過 */ }
 }, true);
 
 window.addEventListener('pointermove', (e) => {

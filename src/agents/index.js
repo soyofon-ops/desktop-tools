@@ -142,7 +142,7 @@ function setupAgents(deps) {
    */
   const defaultNames = new Set(); // 內建預設子代理的代號：從面板移除時保留檔案
   function seedDefaults() {
-    let names = [];
+    let names;
     try { names = fs.readdirSync(DEFAULTS_DIR).filter((f) => f.toLowerCase().endsWith('.md')); } catch { return; }
     let existing = null;
     for (const f of names) {

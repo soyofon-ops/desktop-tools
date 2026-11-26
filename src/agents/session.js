@@ -79,7 +79,7 @@ function permissionCard(name, input = {}, cwd = '') {
     case 'WebFetch': return { title: '要讀取網頁', code: String(input.url || ''), note: '' };
     case 'WebSearch': return { title: '要搜尋網路', code: String(input.query || ''), note: '' };
     default: {
-      let json = '';
+      let json;
       try { json = JSON.stringify(input, null, 2); } catch { json = ''; }
       if (json.length > 600) json = `${json.slice(0, 600)}…`;
       return { title: `要使用工具 ${name}`, code: json, note: '' };

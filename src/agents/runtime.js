@@ -213,6 +213,7 @@ async function planUsage({ loadQuery: load = loadQuery, options = {}, cwd, timeo
   const query = await load();
   let release;
   const released = new Promise((resolve) => { release = resolve; });
+  // eslint-disable-next-line require-yield -- 刻意不 yield：只等待關閉，不送出任何訊息
   async function* prompt() { await released; } // 不送出任何訊息
   const q = query({ prompt: prompt(), options: { ...options, cwd, settingSources: [], tools: [], maxTurns: 1, persistSession: false } });
   // 要持續讀取訊息，控制請求才收得到回應；關閉時的錯誤可以忽略
@@ -264,6 +265,7 @@ async function listCommands({ loadQuery: load = loadQuery, options = {}, cwd, ti
   const query = await load();
   let release;
   const released = new Promise((resolve) => { release = resolve; });
+  // eslint-disable-next-line require-yield -- 刻意不 yield：只等待關閉，不送出任何訊息
   async function* prompt() { await released; } // 不送出任何訊息
   const q = query({ prompt: prompt(), options: { ...options, cwd, settingSources: ['user', 'project', 'local'], persistSession: false, maxTurns: 1 } });
   // 要持續讀取訊息，控制請求才收得到回應；關閉時的錯誤可以忽略
