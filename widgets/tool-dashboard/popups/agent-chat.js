@@ -416,6 +416,18 @@ function renderHistory(h) {
 
 // ---- 即時事件 ----
 let streamFrame = 0;
+
+// 串流途中先藏起模型誤輸出的 reasoning_effort 標籤；最終文字由主程序清除後再覆蓋
+const EFFORT_OPEN = '<reasoning_effort>';
+function hideLeakedEffort(text) {
+  const out = text.replace(/<reasoning_effort>[^<]*<\/reasoning_effort>/g, '');
+  // 結尾若是還沒收完的標籤（如 `<reasoning_eff` 或 `<reasoning_effort>10</rea`），先不顯示
+  const open = out.lastIndexOf(EFFORT_OPEN);
+  if (open !== -1) return out.slice(0, open);
+  const lt = out.lastIndexOf('<');
+  if (lt !== -1 && EFFORT_OPEN.startsWith(out.slice(lt))) return out.slice(0, lt);
+  return out;
+}
 function onEvent({ name: n, event: ev, cost, model }) {
   if (n !== name) return;
   switch (ev.type) {
@@ -432,12 +444,13 @@ function onEvent({ name: n, event: ev, cost, model }) {
     case 'handoff': endStream(); addHandoff(ev.from, ev.text); stickToBottom = true; break;
     case 'delta':
       streamText += ev.text;
-      if (!streamEl) streamEl = aiBubble(streamText, true);
+      if (!streamEl) streamEl = aiBubble(hideLeakedEffort(streamText), true);
       else if (!streamFrame) {
         // 合併到下一個畫面再重畫，大量片段時不卡
         streamFrame = requestAnimationFrame(() => {
           streamFrame = 0;
-          if (streamEl) { streamEl.innerHTML = `${window.renderMarkdown(streamText)}<span class="cursor"></span>`; streamEl.dataset.text = streamText; scrollToEnd(); }
+          const shown = hideLeakedEffort(streamText);
+          if (streamEl) { streamEl.innerHTML = `${window.renderMarkdown(shown)}<span class="cursor"></span>`; streamEl.dataset.text = shown; scrollToEnd(); }
         });
       }
       break;

@@ -9,15 +9,23 @@ const MAX_ANSWER_LENGTH = 2000;
 
 // 模型偶爾把工具呼叫格式或系統標籤當成文字輸出，整行只有這些標籤時不顯示
 const LEAKED_TAG_LINE = /^\s*(<\/?(invoke|parameter|function_calls)\b[^>]*>|<reasoning_effort>[^<]*<\/reasoning_effort>)\s*$/;
+// reasoning_effort 標籤可能夾在一行中間（例如前面多了雜字），出現在任何位置都移除
+const LEAKED_EFFORT_TAG = /<reasoning_effort>[^<]*<\/reasoning_effort>/g;
 const FENCE_LINE = /^\s*`{3,}/;
 
-/** 移除程式碼區塊外、整行只有內部標籤的行，並收合因此多出的空行 */
+/** 移除程式碼區塊外的內部標籤：行內的 reasoning_effort 標籤、整行只有工具標籤的行，並收合因此多出的空行 */
 function stripLeakedTags(text) {
   let inFence = false;
-  const kept = String(text || '').split('\n').filter((line) => {
+  const kept = [];
+  for (const line of String(text || '').split('\n')) {
     if (FENCE_LINE.test(line)) inFence = !inFence;
-    return inFence || !LEAKED_TAG_LINE.test(line);
-  });
+    if (inFence) { kept.push(line); continue; }
+    if (LEAKED_TAG_LINE.test(line)) continue;
+    const cleaned = line.replace(LEAKED_EFFORT_TAG, '');
+    // 移除標籤後只剩空白的行整行拿掉；原本就是空行的保留
+    if (cleaned !== line && !cleaned.trim()) continue;
+    kept.push(cleaned);
+  }
   return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
